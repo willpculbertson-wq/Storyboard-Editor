@@ -305,6 +305,47 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 #char-import-error{font-size:12px;color:var(--red)}
 #char-import-preview{font-size:12px;color:var(--text-1)}
 
+/* ── VIEW TOGGLE ───────────────────────────────────────── */
+.view-toggle{display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-right:4px}
+.view-btn{border-radius:0;border:none;border-right:1px solid var(--border);padding:4px 10px;font-size:15px;line-height:1;background:var(--bg-2);color:var(--text-1)}
+.view-btn:last-child{border-right:none}
+.view-btn:hover{background:var(--bg-3);color:var(--text-0)}
+.view-btn.active{background:var(--accent);color:#fff}
+
+/* ── FOCUS VIEW ─────────────────────────────────────────── */
+#image-grid.focus-mode{overflow:hidden!important;padding:0!important}
+#image-grid-inner.focus-view{display:flex;align-items:stretch;gap:6px;padding:12px;height:100%;box-sizing:border-box}
+.focus-cell{position:relative;background:var(--bg-2);border-radius:var(--radius);overflow:hidden;cursor:pointer;border:2px solid transparent;flex-shrink:0;transition:border-color .1s,opacity .15s}
+.focus-cell.focus-current{flex:1;cursor:default}
+.focus-cell.focus-near{width:150px;opacity:.75}
+.focus-cell.focus-far{width:80px;opacity:.45}
+.focus-cell[data-status="included"]{border-color:var(--green)}
+.focus-cell[data-status="excluded"]{border-color:var(--red)}
+.focus-cell[data-status="maybe"]{border-color:var(--yellow)}
+.focus-cell[data-status="untagged"]{border-color:var(--grey)}
+.focus-cell img{width:100%;height:100%;object-fit:cover;display:block}
+.focus-label{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.75));color:#fff;font-size:10px;padding:8px 4px 3px;text-align:center;word-break:break-all;opacity:0;transition:opacity .15s}
+.focus-cell:hover .focus-label{opacity:1}
+.focus-cell.focus-current .focus-label{opacity:1}
+.focus-placeholder{flex-shrink:0;background:var(--bg-1);border-radius:var(--radius);opacity:.3}
+.focus-placeholder.focus-near{width:150px}
+.focus-placeholder.focus-far{width:80px}
+
+/* ── LIST VIEW ──────────────────────────────────────────── */
+#image-grid-inner.list-view{display:flex;flex-direction:column;padding:0}
+.list-header,.list-row{display:grid;grid-template-columns:56px 12px 1fr 90px 70px 70px 100px 130px 2fr;align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--border);font-size:12px}
+.list-header{position:sticky;top:0;background:var(--bg-2);font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;z-index:1;user-select:none}
+.list-row{cursor:pointer}
+.list-row:hover{background:var(--bg-2)}
+.list-row:nth-child(odd){background:var(--bg-1)}
+.list-row:nth-child(odd):hover{background:var(--bg-2)}
+.list-thumb{width:56px;height:36px;object-fit:cover;border-radius:2px;display:block}
+.list-cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-1)}
+.list-cell.primary{color:var(--text-0)}
+.list-narrative{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2);font-style:italic}
+.list-tags{display:flex;gap:3px;overflow:hidden;align-items:center}
+.list-tag{background:var(--bg-3);border-radius:10px;padding:1px 6px;font-size:10px;white-space:nowrap;flex-shrink:0}
+
 /* ── SCROLLBAR ─────────────────────────────────────────── */
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track{background:var(--bg-2);border-radius:5px}
@@ -344,6 +385,11 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
     <span id="save-indicator">Saved</span>
     <div class="header-spacer"></div>
     <div class="header-btns">
+      <div class="view-toggle" id="view-toggle">
+        <button class="view-btn" data-view="grid"  title="Grid view">⊞</button>
+        <button class="view-btn" data-view="focus" title="Focus view">⊟</button>
+        <button class="view-btn" data-view="list"  title="List view">≡</button>
+      </div>
       <div class="stat-chip" title="Included scenes"><span class="dot dot-green"></span><span id="stat-included">0</span> included</div>
       <div class="stat-chip" title="Maybe scenes"><span class="dot dot-yellow"></span><span id="stat-maybe">0</span> maybe</div>
       <div class="stat-chip" title="Untagged scenes"><span class="dot dot-grey"></span><span id="stat-untagged">0</span> untagged</div>
@@ -819,6 +865,7 @@ App.State = (function() {
     _sceneIndex: new Map(),     // id -> scene
     selectMode: false,
     selectedCards: new Set(),
+    viewMode: localStorage.getItem('storyboard_viewMode') || 'grid',
   };
   const _subs = {};
 
@@ -1111,12 +1158,14 @@ App.DnD = (function() {
 App.Grid = (function() {
   let _inner;
   let _initialized = false;
+  let _lastFilteredScenes = [];
 
   function init() {
     _inner = document.getElementById('image-grid-inner');
     if (!_initialized) {
       App.State.subscribe('projectChange', render);
       App.State.subscribe('filterChange', render);
+      App.State.subscribe('viewMode', render);
       _initialized = true;
     }
   }
@@ -1141,19 +1190,46 @@ App.Grid = (function() {
   function render() {
     if (!_inner) return;
     const project = App.State.get('project');
-    if (!project) { _inner.innerHTML = '<div id="empty-state">Open a project to begin.</div>'; return; }
+    if (!project) {
+      _inner.className = '';
+      _inner.innerHTML = '<div id="empty-state">Open a project to begin.</div>';
+      _resetGridContainer();
+      return;
+    }
 
     const scenes = _applyFilter(project.scenes, App.State.get('filter'));
     App.State.set('filteredCount', scenes.length);
+    _lastFilteredScenes = scenes;
+
+    if (scenes.length === 0) {
+      _inner.className = '';
+      _inner.innerHTML = '<div id="empty-state">No scenes match the current filter.</div>';
+      _resetGridContainer();
+      return;
+    }
+
+    const mode = App.State.get('viewMode');
+    if (mode === 'focus') _renderFocus(scenes);
+    else if (mode === 'list') _renderList(scenes);
+    else _renderGrid(scenes);
+  }
+
+  function _resetGridContainer() {
+    const g = document.getElementById('image-grid');
+    g.classList.remove('focus-mode');
+    g.style.padding = '';
+  }
+
+  // ── Grid view ───────────────────────────────────────────
+  function _renderGrid(scenes) {
+    document.getElementById('image-grid').classList.remove('focus-mode');
+    document.getElementById('image-grid').style.padding = '';
+    _inner.className = '';
+    _inner.innerHTML = '';
+
     const selectedId = App.State.get('selectedSceneId');
     const selectMode = App.State.get('selectMode');
     const selectedCards = App.State.get('selectedCards');
-
-    _inner.innerHTML = '';
-    if (scenes.length === 0) {
-      _inner.innerHTML = '<div id="empty-state">No scenes match the current filter.</div>';
-      return;
-    }
 
     const frag = document.createDocumentFragment();
     for (const scene of scenes) {
@@ -1177,7 +1253,7 @@ App.Grid = (function() {
 
     const label = document.createElement('div');
     label.className = 'card-label';
-    label.textContent = scene.asset.path;  // shows full relative path on hover
+    label.textContent = scene.asset.path;
 
     const check = document.createElement('input');
     check.type = 'checkbox';
@@ -1216,16 +1292,199 @@ App.Grid = (function() {
     return card;
   }
 
-  function refreshCard(sceneId) {
-    const card = _inner?.querySelector(`[data-scene-id="${sceneId}"]`);
-    if (!card) return;
-    const scene = App.State.get('_sceneIndex').get(sceneId);
-    if (!scene) return;
-    card.dataset.status = scene.status || 'untagged';
-    card.classList.toggle('selected', sceneId === App.State.get('selectedSceneId'));
+  // ── Focus view ──────────────────────────────────────────
+  function _renderFocus(scenes) {
+    document.getElementById('image-grid').classList.add('focus-mode');
+    _inner.className = 'focus-view';
+    _inner.innerHTML = '';
+
+    const selectedId = App.State.get('selectedSceneId');
+    let centerIdx = scenes.findIndex(s => s.id === selectedId);
+    if (centerIdx < 0) centerIdx = 0;
+
+    const slots = [
+      { offset: -2, cls: 'focus-far' },
+      { offset: -1, cls: 'focus-near' },
+      { offset:  0, cls: 'focus-current' },
+      { offset:  1, cls: 'focus-near' },
+      { offset:  2, cls: 'focus-far' },
+    ];
+
+    const frag = document.createDocumentFragment();
+    slots.forEach(({ offset, cls }) => {
+      const scene = scenes[centerIdx + offset];
+      if (!scene) {
+        const ph = document.createElement('div');
+        ph.className = `focus-placeholder ${cls}`;
+        frag.appendChild(ph);
+        return;
+      }
+      const cell = document.createElement('div');
+      cell.className = `focus-cell ${cls}`;
+      cell.dataset.sceneId = scene.id;
+      cell.dataset.status = scene.status || 'untagged';
+
+      const img = document.createElement('img');
+      img.alt = scene.asset.path;
+
+      const lbl = document.createElement('div');
+      lbl.className = 'focus-label';
+      lbl.textContent = scene.asset.path;
+
+      cell.appendChild(img);
+      cell.appendChild(lbl);
+
+      if (offset !== 0) {
+        cell.title = scene.asset.path;
+        cell.addEventListener('click', () => App.Editor.open(scene.id));
+      }
+
+      frag.appendChild(cell);
+      App.LazyLoader.observe(cell);
+    });
+    _inner.appendChild(frag);
   }
 
-  return { init, render, refreshCard };
+  // ── List view ───────────────────────────────────────────
+  function _renderList(scenes) {
+    document.getElementById('image-grid').classList.remove('focus-mode');
+    document.getElementById('image-grid').style.padding = '0';
+    _inner.className = 'list-view';
+    _inner.innerHTML = '';
+
+    const frag = document.createDocumentFragment();
+
+    const header = document.createElement('div');
+    header.className = 'list-header';
+    ['', '', 'Path', 'Rating', 'Shot', 'Trans.', 'Mood', 'Tags', 'Narrative'].forEach(text => {
+      const cell = document.createElement('span');
+      cell.textContent = text;
+      header.appendChild(cell);
+    });
+    frag.appendChild(header);
+
+    scenes.forEach(scene => {
+      const row = document.createElement('div');
+      row.className = 'list-row';
+      row.dataset.sceneId = scene.id;
+      row.dataset.status = scene.status || 'untagged';
+
+      const thumbWrap = document.createElement('div');
+      const img = document.createElement('img');
+      img.className = 'list-thumb';
+      img.alt = scene.asset.path;
+      thumbWrap.appendChild(img);
+
+      const dot = document.createElement('div');
+      dot.className = `dot dot-${_statusColor(scene.status || 'untagged')}`;
+
+      const pathCell = document.createElement('div');
+      pathCell.className = 'list-cell primary';
+      pathCell.textContent = scene.asset.path;
+      pathCell.title = scene.asset.path;
+
+      const tagsDiv = document.createElement('div');
+      tagsDiv.className = 'list-tags';
+      (scene.tags || []).slice(0, 3).forEach(t => {
+        const chip = document.createElement('span');
+        chip.className = 'list-tag';
+        chip.textContent = t;
+        tagsDiv.appendChild(chip);
+      });
+      if ((scene.tags || []).length > 3) {
+        const more = document.createElement('span');
+        more.className = 'list-tag';
+        more.textContent = `+${scene.tags.length - 3}`;
+        tagsDiv.appendChild(more);
+      }
+
+      const narDiv = document.createElement('div');
+      narDiv.className = 'list-narrative';
+      const narText = scene.narrative || '';
+      narDiv.textContent = narText ? (narText.length > 80 ? narText.slice(0, 80) + '…' : narText) : '—';
+      if (narText.length > 80) narDiv.title = narText;
+
+      row.append(
+        thumbWrap, dot, pathCell,
+        _listCell(scene.contentRating),
+        _listCell(scene.shot?.type),
+        _listCell(scene.shot?.transition),
+        _listCell(scene.mood),
+        tagsDiv, narDiv
+      );
+      row.addEventListener('click', () => App.Editor.open(scene.id));
+
+      frag.appendChild(row);
+      App.LazyLoader.observe(row);
+    });
+
+    _inner.appendChild(frag);
+  }
+
+  function _listCell(value) {
+    const div = document.createElement('div');
+    div.className = 'list-cell';
+    div.textContent = value || '—';
+    return div;
+  }
+
+  function _statusColor(status) {
+    return { included: 'green', excluded: 'red', maybe: 'yellow', untagged: 'grey' }[status] || 'grey';
+  }
+
+  // ── refreshCard ─────────────────────────────────────────
+  function refreshCard(sceneId) {
+    const scene = App.State.get('_sceneIndex').get(sceneId);
+    if (!scene) return;
+    const mode = App.State.get('viewMode');
+    if (mode === 'focus') { render(); return; }
+    const el = _inner?.querySelector(`[data-scene-id="${sceneId}"]`);
+    if (!el) return;
+    const status = scene.status || 'untagged';
+    el.dataset.status = status;
+    if (mode === 'list') {
+      if (el.children[1]) el.children[1].className = `dot dot-${_statusColor(status)}`;
+    } else {
+      el.classList.toggle('selected', sceneId === App.State.get('selectedSceneId'));
+    }
+  }
+
+  // ── setViewMode ─────────────────────────────────────────
+  function setViewMode(mode) {
+    const prev = App.State.get('viewMode');
+    if (mode === prev) return;
+    if (prev === 'grid') {
+      App.State.get('selectedCards').clear();
+      document.getElementById('bulk-bar').classList.remove('visible');
+    }
+    App.State.set('viewMode', mode);
+    localStorage.setItem('storyboard_viewMode', mode);
+    document.querySelectorAll('.view-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.view === mode));
+    const smCheck = document.getElementById('toggle-select-mode');
+    if (smCheck) {
+      smCheck.disabled = mode !== 'grid';
+      smCheck.title = mode !== 'grid' ? 'Only available in grid view' : '';
+    }
+    if (mode === 'focus') {
+      const selId = App.State.get('selectedSceneId') || _lastFilteredScenes[0]?.id;
+      if (selId) App.Editor.open(selId);
+    }
+    render();
+  }
+
+  // Arrow key navigation in focus mode
+  document.addEventListener('keydown', e => {
+    if (App.State.get('viewMode') !== 'focus') return;
+    if (e.target.matches('input,textarea,select')) return;
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const idx = _lastFilteredScenes.findIndex(s => s.id === App.State.get('selectedSceneId'));
+    const next = _lastFilteredScenes[idx + (e.key === 'ArrowRight' ? 1 : -1)];
+    if (next) App.Editor.open(next.id);
+  });
+
+  return { init, render, refreshCard, setViewMode };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -1250,7 +1509,7 @@ App.Editor = (function() {
     document.getElementById('ed-tag-input').addEventListener('keydown', _onTagKeydown);
 
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && _currentId) close();
+      if (e.key === 'Escape' && _currentId && App.State.get('viewMode') !== 'focus') close();
     });
   }
 
@@ -2178,6 +2437,14 @@ App.StartScreen = (function() {
 document.getElementById('btn-chars').addEventListener('click', () => App.CharMgr.open());
 document.getElementById('btn-export').addEventListener('click', () => document.getElementById('export-dialog').showModal());
 document.getElementById('btn-batch').addEventListener('click', () => App.BatchEdit.open());
+
+document.getElementById('view-toggle').addEventListener('click', e => {
+  const btn = e.target.closest('.view-btn');
+  if (btn) App.Grid.setViewMode(btn.dataset.view);
+});
+// Mark the initially active view button
+document.querySelectorAll('.view-btn').forEach(b =>
+  b.classList.toggle('active', b.dataset.view === App.State.get('viewMode')));
 
 document.getElementById('project-title').addEventListener('change', e => {
   App.State.mutateProject(project => { project.project.title = e.target.value; });
