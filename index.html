@@ -207,7 +207,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 }
 
 /* ── CHARACTER MANAGER ─────────────────────────────────── */
-#char-manager-dialog{width:600px}
+#char-manager-dialog{width:700px}
 .char-row{
   padding:10px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;
 }
@@ -655,7 +655,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       Paste a JSON array of character objects. Characters whose names already exist in the project will be skipped.
     </p>
     <textarea id="char-import-input" rows="9"
-      placeholder='[{"name":"Alice","role":"protagonist","playable":true,"description":"…","tags":[]}, …]'
+      placeholder='[{"name":"Alice","role":"protagonist","alias":"Ally","age":17,"playable":true,"description":"…","tags":[]}, …]'
       style="font-family:monospace;font-size:12px;width:100%"></textarea>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
       <button id="btn-show-schema">Show Schema</button>
@@ -1743,15 +1743,13 @@ App.CharMgr = (function() {
       return;
     }
     chars.forEach(char => {
+      const e = App.Utils.esc;
       const row = document.createElement('div');
       row.className = 'char-row';
       row.innerHTML = `
         <div class="char-row-top">
-          <input class="char-name-input" type="text" value="${App.Utils.esc(char.name)}" data-char-id="${char.id}" data-field="name" placeholder="Name" style="flex:1">
-          <select data-char-id="${char.id}" data-field="role" style="width:120px">
-            <option value="protagonist" ${char.role==='protagonist'?'selected':''}>Protagonist</option>
-            <option value="npc" ${char.role==='npc'?'selected':''}>NPC</option>
-          </select>
+          <input class="char-name-input" type="text" value="${e(char.name)}" data-char-id="${char.id}" data-field="name" placeholder="Name" style="flex:1">
+          <input type="text" value="${e(char.role||'')}" data-char-id="${char.id}" data-field="role" placeholder="Role" style="width:110px">
           <label style="display:flex;align-items:center;gap:4px;white-space:nowrap;color:var(--text-1);font-size:12px;margin:0">
             <input type="checkbox" style="width:auto" ${char.playable?'checked':''} data-char-id="${char.id}" data-field="playable"> Playable
           </label>
@@ -1760,18 +1758,60 @@ App.CharMgr = (function() {
         <div class="char-row-fields">
           <div class="field-group" style="grid-column:span 2">
             <label>Description</label>
-            <textarea data-char-id="${char.id}" data-field="description" rows="2">${App.Utils.esc(char.description||'')}</textarea>
+            <textarea data-char-id="${char.id}" data-field="description" rows="2">${e(char.description||'')}</textarea>
+          </div>
+          <div class="field-group">
+            <label>Alias</label>
+            <input type="text" value="${e(char.alias||'')}" data-char-id="${char.id}" data-field="alias" placeholder="…">
+          </div>
+          <div class="field-group">
+            <label>Color</label>
+            <input type="text" value="${e(char.color||'')}" data-char-id="${char.id}" data-field="color" placeholder="…">
+          </div>
+          <div class="field-group">
+            <label>Age</label>
+            <input type="number" value="${char.age??''}" data-char-id="${char.id}" data-field="age" placeholder="…" min="0">
+          </div>
+          <div class="field-group">
+            <label>Occupation</label>
+            <input type="text" value="${e(char.occupation||'')}" data-char-id="${char.id}" data-field="occupation" placeholder="…">
+          </div>
+          <div class="field-group">
+            <label>Orientation</label>
+            <input type="text" value="${e(char.orientation||'')}" data-char-id="${char.id}" data-field="orientation" placeholder="…">
+          </div>
+          <div class="field-group">
+            <label>Kink</label>
+            <input type="text" value="${e(char.kink||'')}" data-char-id="${char.id}" data-field="kink" placeholder="…">
+          </div>
+          <div class="field-group" style="grid-column:span 2">
+            <label>Physical Appearance</label>
+            <textarea data-char-id="${char.id}" data-field="physicalAppearance" rows="2">${e(char.physicalAppearance||'')}</textarea>
+          </div>
+          <div class="field-group" style="grid-column:span 2">
+            <label>Relationships</label>
+            <textarea data-char-id="${char.id}" data-field="relationships" rows="2">${e(char.relationships||'')}</textarea>
+          </div>
+          <div class="field-group" style="grid-column:span 2">
+            <label>Notes</label>
+            <textarea data-char-id="${char.id}" data-field="notes" rows="2">${e(char.notes||'')}</textarea>
           </div>
         </div>`;
       list.appendChild(row);
     });
   }
 
+  function _coerceField(field, rawValue) {
+    if (field === 'age') return rawValue !== '' ? parseInt(rawValue, 10) : null;
+    return rawValue;
+  }
+
   _dialog.addEventListener('change', e => {
     const charId = e.target.dataset.charId;
     const field = e.target.dataset.field;
     if (!charId || !field) return;
-    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    const raw = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    const value = e.target.type === 'checkbox' ? raw : _coerceField(field, raw);
     App.State.mutateProject(project => {
       const char = project.characters.find(c => c.id === charId);
       if (char) char[field] = value;
@@ -1786,7 +1826,7 @@ App.CharMgr = (function() {
     const project = App.State.get('project');
     const char = project?.characters.find(c => c.id === charId);
     if (char) {
-      char[field] = e.target.value;
+      char[field] = _coerceField(field, e.target.value);
       project.project.modified = new Date().toISOString();
       App.FS.scheduleSave();
     }
@@ -1837,9 +1877,18 @@ App.CharImport = (function() {
     {
       name: 'Alice',
       role: 'protagonist',
+      alias: 'Ally',
+      color: '#e8a0bf',
+      age: 17,
+      occupation: 'Student',
+      orientation: 'bisexual',
+      kink: 'teasing',
       playable: true,
       description: 'The main character and narrator.',
+      physicalAppearance: 'Tall, auburn hair, green eyes.',
+      relationships: 'Childhood friends with Bob.',
       tags: ['female', 'student'],
+      notes: 'Has a secret she keeps from everyone.',
     },
     {
       name: 'Bob',
@@ -1851,9 +1900,11 @@ App.CharImport = (function() {
   ], null, 2);
 
   const SCHEMA_NOTE =
-    '\n// Fields: name (required), role ("protagonist"|"npc", default "npc"),\n' +
-    '//         playable (boolean, default false), description (string),\n' +
-    '//         tags (string[]). Do not include "id" — it is generated automatically.';
+    '\n// Required: name\n' +
+    '// Optional: role (any string), alias, color, age (integer), occupation,\n' +
+    '//           orientation, kink, playable (boolean), description, physicalAppearance,\n' +
+    '//           relationships, tags (string[]), notes\n' +
+    '// Do not include "id" — it is generated automatically.';
 
   function open() {
     document.getElementById('char-import-input').value = '';
@@ -1933,14 +1984,24 @@ App.CharImport = (function() {
 
     App.State.mutateProject(project => {
       toAdd.forEach(c => {
-        project.characters.push({
+        const char = {
           id: crypto.randomUUID(),
           name: c.name.trim(),
-          role: c.role === 'protagonist' ? 'protagonist' : 'npc',
           playable: typeof c.playable === 'boolean' ? c.playable : false,
           description: typeof c.description === 'string' ? c.description : '',
           tags: Array.isArray(c.tags) ? c.tags.filter(t => typeof t === 'string') : [],
-        });
+        };
+        if (c.role          != null) char.role             = String(c.role);
+        if (c.alias         != null) char.alias            = String(c.alias);
+        if (c.color         != null) char.color            = String(c.color);
+        if (c.age           != null) char.age              = parseInt(c.age, 10) || null;
+        if (c.occupation    != null) char.occupation       = String(c.occupation);
+        if (c.orientation   != null) char.orientation      = String(c.orientation);
+        if (c.kink          != null) char.kink             = String(c.kink);
+        if (c.physicalAppearance != null) char.physicalAppearance = String(c.physicalAppearance);
+        if (c.relationships != null) char.relationships    = String(c.relationships);
+        if (c.notes         != null) char.notes            = String(c.notes);
+        project.characters.push(char);
       });
     });
 
@@ -2247,9 +2308,20 @@ App.Export = (function() {
     md += `## Characters\n\n`;
     if (!chars.length) { md += '_No characters defined._\n\n'; }
     chars.forEach(c => {
-      md += `### ${c.name}\n- **Role:** ${c.role}${c.playable ? ' (playable)' : ''}\n`;
-      if (c.description) md += `- **Description:** ${c.description}\n`;
-      if (c.tags?.length) md += `- **Tags:** ${c.tags.join(', ')}\n`;
+      md += `### ${c.name}\n`;
+      if (c.role)             md += `- **Role:** ${c.role}${c.playable ? ' (playable)' : ''}\n`;
+      else if (c.playable)    md += `- **Playable:** yes\n`;
+      if (c.alias)            md += `- **Alias:** ${c.alias}\n`;
+      if (c.color)            md += `- **Color:** ${c.color}\n`;
+      if (c.age   != null)    md += `- **Age:** ${c.age}\n`;
+      if (c.occupation)       md += `- **Occupation:** ${c.occupation}\n`;
+      if (c.orientation)      md += `- **Orientation:** ${c.orientation}\n`;
+      if (c.kink)             md += `- **Kink:** ${c.kink}\n`;
+      if (c.description)      md += `- **Description:** ${c.description}\n`;
+      if (c.physicalAppearance) md += `- **Physical Appearance:** ${c.physicalAppearance}\n`;
+      if (c.relationships)    md += `- **Relationships:** ${c.relationships}\n`;
+      if (c.tags?.length)     md += `- **Tags:** ${c.tags.join(', ')}\n`;
+      if (c.notes)            md += `- **Notes:** ${c.notes}\n`;
       md += '\n';
     });
 
