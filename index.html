@@ -1,0 +1,2019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Storyboard Editor</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-0:#0f0f0f;--bg-1:#1a1a1a;--bg-2:#252525;--bg-3:#303030;
+  --text-0:#f0f0f0;--text-1:#a0a0a0;--text-2:#606060;
+  --accent:#3b82f6;--accent-dim:#1d4ed8;
+  --green:#22c55e;--red:#ef4444;--yellow:#eab308;--grey:#6b7280;
+  --border:#333;--radius:4px;
+  --font:system-ui,-apple-system,sans-serif;
+}
+html,body{height:100%;background:var(--bg-0);color:var(--text-0);font-family:var(--font);font-size:14px;overflow:hidden}
+button{cursor:pointer;font-family:var(--font);font-size:13px;border:none;border-radius:var(--radius);padding:5px 10px;background:var(--bg-3);color:var(--text-0);transition:background .15s}
+button:hover{background:#3a3a3a}
+button.primary{background:var(--accent);color:#fff}
+button.primary:hover{background:var(--accent-dim)}
+button.danger{background:#7f1d1d;color:#fca5a5}
+button.danger:hover{background:#991b1b}
+select,input,textarea{font-family:var(--font);font-size:13px;background:var(--bg-2);color:var(--text-0);border:1px solid var(--border);border-radius:var(--radius);padding:4px 6px;outline:none;width:100%}
+select:focus,input:focus,textarea:focus{border-color:var(--accent)}
+select:disabled,input:disabled{opacity:.4;cursor:not-allowed}
+textarea{resize:vertical}
+label{font-size:12px;color:var(--text-1);display:block;margin-bottom:3px}
+hr{border:none;border-top:1px solid var(--border);margin:8px 0}
+dialog{background:var(--bg-1);color:var(--text-0);border:1px solid var(--border);border-radius:8px;padding:0;max-width:90vw;max-height:90vh}
+dialog::backdrop{background:rgba(0,0,0,.7)}
+
+/* ── START SCREEN ──────────────────────────────────────── */
+#start-screen{
+  position:fixed;inset:0;z-index:100;background:var(--bg-0);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:32px;
+}
+#start-screen h1{font-size:28px;font-weight:600;letter-spacing:-.5px}
+#start-screen .subtitle{color:var(--text-1);font-size:14px}
+.start-actions{display:flex;gap:12px}
+.start-actions button{padding:10px 20px;font-size:14px}
+#recent-list{width:420px;max-height:260px;overflow-y:auto}
+#recent-list h3{font-size:12px;color:var(--text-1);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.recent-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 10px;border-radius:var(--radius);cursor:pointer;
+  border:1px solid var(--border);margin-bottom:6px;transition:background .15s;
+}
+.recent-item:hover{background:var(--bg-2)}
+.recent-item .recent-title{font-weight:500}
+.recent-item .recent-meta{font-size:11px;color:var(--text-2)}
+.recent-item .reopen-btn{font-size:11px;background:var(--bg-3);padding:3px 8px;flex:0 0 auto}
+
+/* ── APP SHELL ─────────────────────────────────────────── */
+#app-shell{
+  display:none;grid-template-rows:48px 1fr;grid-template-columns:220px 1fr;
+  height:100vh;overflow:hidden;
+}
+#app-shell.visible{display:grid}
+
+/* ── HEADER ────────────────────────────────────────────── */
+#header{
+  grid-column:1/-1;background:var(--bg-1);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:8px;padding:0 12px;
+}
+#project-title{
+  font-size:15px;font-weight:600;background:transparent;border:1px solid transparent;
+  border-radius:var(--radius);padding:3px 6px;cursor:text;flex:0 0 auto;max-width:260px;
+  color:var(--text-0);
+}
+#project-title:hover{border-color:var(--border)}
+#project-title:focus{border-color:var(--accent);outline:none;background:var(--bg-2)}
+#save-indicator{font-size:11px;margin-left:4px;min-width:50px;transition:opacity .5s;opacity:0}
+#save-indicator.saving{color:var(--yellow);opacity:1}
+#save-indicator.saved{color:var(--green);opacity:1}
+.header-spacer{flex:1}
+.header-btns{display:flex;gap:6px;align-items:center}
+.stat-chip{
+  font-size:11px;padding:3px 8px;border-radius:12px;
+  background:var(--bg-2);border:1px solid var(--border);color:var(--text-1);
+  display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap;
+}
+.stat-chip:hover{border-color:var(--accent);color:var(--text-0)}
+.stat-chip .dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.dot-green{background:var(--green)}.dot-yellow{background:var(--yellow)}
+.dot-red{background:var(--red)}.dot-grey{background:var(--grey)}
+
+/* ── SIDEBAR ───────────────────────────────────────────── */
+#sidebar{
+  grid-row:2;background:var(--bg-1);border-right:1px solid var(--border);
+  overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:16px;
+}
+.sidebar-section h4{font-size:11px;color:var(--text-1);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.sidebar-section{display:flex;flex-direction:column;gap:6px}
+.filter-row{display:flex;flex-direction:column;gap:3px}
+.filter-row label{font-size:11px}
+.toggle-row{display:flex;align-items:center;gap:8px;font-size:12px}
+.toggle-row input[type=checkbox]{width:auto}
+
+/* ── MAIN CONTENT ──────────────────────────────────────── */
+#main-content{grid-row:2;display:flex;flex-direction:column;overflow:hidden}
+#bulk-bar{
+  display:none;align-items:center;gap:8px;padding:6px 10px;
+  background:var(--bg-2);border-bottom:1px solid var(--border);font-size:12px;
+}
+#bulk-bar.visible{display:flex}
+#bulk-bar span{color:var(--text-1)}
+
+/* ── IMAGE GRID ────────────────────────────────────────── */
+#image-grid{flex:1;overflow-y:auto;padding:8px}
+#image-grid-inner{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px;
+}
+.scene-card{
+  position:relative;aspect-ratio:16/9;background:var(--bg-2);border-radius:var(--radius);
+  overflow:hidden;cursor:pointer;border:2px solid transparent;
+  transition:border-color .1s,opacity .1s;user-select:none;
+}
+.scene-card img{width:100%;height:100%;object-fit:cover;display:block}
+.scene-card[data-status="included"]{border-color:var(--green)}
+.scene-card[data-status="excluded"]{border-color:var(--red);opacity:.4}
+.scene-card[data-status="maybe"]{border-color:var(--yellow)}
+.scene-card[data-status="untagged"]{border-color:var(--grey)}
+.scene-card.selected{outline:3px solid var(--accent);outline-offset:1px}
+.scene-card.drag-over{outline:2px dashed var(--accent);outline-offset:2px}
+.scene-card.dragging{opacity:.3}
+.scene-card.file-missing::after{
+  content:'⚠ missing';position:absolute;bottom:0;left:0;right:0;
+  background:rgba(239,68,68,.8);color:#fff;font-size:10px;text-align:center;padding:2px;
+}
+.card-check{display:none;position:absolute;top:4px;left:4px;width:16px;height:16px;accent-color:var(--accent)}
+.select-mode .card-check{display:block}
+.card-label{
+  position:absolute;bottom:0;left:0;right:0;
+  background:linear-gradient(transparent,rgba(0,0,0,.75));
+  color:#fff;font-size:9px;padding:6px 4px 3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  opacity:0;transition:opacity .15s;
+}
+.scene-card:hover .card-label{opacity:1}
+#empty-state{
+  grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--text-2);font-size:14px;
+}
+
+/* ── SCENE EDITOR PANEL ────────────────────────────────── */
+#scene-editor{
+  height:0;overflow:hidden;border-top:1px solid var(--border);
+  background:var(--bg-1);transition:height .2s ease;
+}
+#scene-editor.open{height:390px}
+#scene-editor-inner{display:flex;height:100%}
+#editor-preview{
+  flex:0 0 240px;background:var(--bg-0);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:8px;gap:4px;border-right:1px solid var(--border);
+}
+#editor-preview img{max-width:100%;max-height:280px;object-fit:contain;border-radius:2px}
+#ed-path{font-size:10px;color:var(--text-2);word-break:break-all;text-align:center;padding:0 4px}
+#ed-hash{font-size:9px;color:var(--text-2);font-family:monospace;text-align:center;word-break:break-all;padding:0 4px}
+#editor-fields{
+  flex:1;overflow-y:auto;padding:10px;
+  display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-content:start;
+}
+#editor-close{position:absolute;right:8px;top:8px;background:transparent;color:var(--text-1);font-size:16px;padding:2px 6px}
+#editor-close:hover{color:var(--text-0)}
+#editor-header{
+  position:relative;grid-column:1/-1;
+  display:flex;align-items:center;gap:10px;padding-bottom:6px;border-bottom:1px solid var(--border);
+}
+#editor-header h3{font-size:13px;font-weight:600}
+.field-group{display:flex;flex-direction:column;gap:3px}
+.field-group.span2{grid-column:span 2}
+.field-group.span3{grid-column:span 3}
+.field-group label{font-size:11px;color:var(--text-1)}
+#ed-chars-section{grid-column:1/-1;border-top:1px solid var(--border);padding-top:8px}
+#ed-chars-section h4{font-size:11px;color:var(--text-1);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
+.char-entry{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.char-entry .char-name{font-size:12px;min-width:80px;font-weight:500}
+.char-entry input{flex:1}
+.char-entry button{flex:0 0 auto;padding:3px 6px;font-size:12px}
+#ed-chars-add-row{display:flex;gap:6px;margin-top:4px}
+#ed-chars-add-row select{flex:1}
+.tags-container{
+  display:flex;flex-wrap:wrap;gap:4px;align-items:center;
+  min-height:28px;padding:2px;background:var(--bg-2);border:1px solid var(--border);
+  border-radius:var(--radius);
+}
+.tags-container:focus-within{border-color:var(--accent)}
+.tag-chip{
+  display:inline-flex;align-items:center;gap:3px;
+  background:var(--bg-3);border-radius:12px;padding:2px 8px;font-size:11px;
+}
+.tag-chip button{background:transparent;color:var(--text-1);padding:0;font-size:12px;line-height:1}
+.tag-chip button:hover{color:var(--red)}
+#ed-tag-input{border:none;background:transparent;font-size:12px;outline:none;color:var(--text-0);min-width:80px;flex:1}
+
+/* ── DIALOGS SHARED ────────────────────────────────────── */
+.dialog-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 16px;border-bottom:1px solid var(--border);
+}
+.dialog-header h2{font-size:16px;font-weight:600}
+.dialog-body{padding:16px;max-height:65vh;overflow-y:auto}
+.dialog-footer{
+  padding:10px 16px;border-top:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;
+}
+
+/* ── CHARACTER MANAGER ─────────────────────────────────── */
+#char-manager-dialog{width:600px}
+.char-row{
+  padding:10px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;
+}
+.char-row-top{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.char-name-input{font-size:14px;font-weight:600;flex:1}
+.char-row-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+/* ── STATS DIALOG ──────────────────────────────────────── */
+#stats-dialog{width:400px}
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:16px}
+.stat-block{background:var(--bg-2);border-radius:var(--radius);padding:12px;text-align:center}
+.stat-block .stat-num{font-size:28px;font-weight:700;line-height:1}
+.stat-block .stat-label{font-size:11px;color:var(--text-1);margin-top:4px}
+.stat-block.green .stat-num{color:var(--green)}
+.stat-block.yellow .stat-num{color:var(--yellow)}
+.stat-block.red .stat-num{color:var(--red)}
+.stat-block.grey .stat-num{color:var(--grey)}
+
+/* ── EXPORT DIALOG ─────────────────────────────────────── */
+#export-dialog{width:340px}
+.export-option{
+  display:flex;flex-direction:column;gap:4px;
+  padding:12px;border:1px solid var(--border);border-radius:var(--radius);
+  margin-bottom:8px;cursor:pointer;transition:border-color .15s;
+}
+.export-option:hover{border-color:var(--accent)}
+.export-option h4{font-size:13px;font-weight:600}
+.export-option p{font-size:11px;color:var(--text-1)}
+
+/* ── BATCH EDIT DIALOG ─────────────────────────────────── */
+#batch-edit-dialog{width:700px}
+.batch-body{display:flex;overflow:hidden;max-height:55vh}
+.batch-scope-pane{
+  flex:0 0 230px;padding:16px;border-right:1px solid var(--border);overflow-y:auto;
+}
+.batch-fields-pane{flex:1;padding:16px;overflow-y:auto}
+.batch-section-title{
+  font-size:11px;color:var(--text-1);text-transform:uppercase;
+  letter-spacing:.08em;margin-bottom:10px;font-weight:600;
+}
+.batch-all-row{
+  display:flex;align-items:center;gap:8px;padding:6px 8px;
+  border:1px solid var(--border);border-radius:var(--radius);
+  cursor:pointer;font-size:13px;font-weight:500;margin-bottom:8px;
+}
+.batch-all-row input{width:auto}
+.batch-dir-row{
+  display:flex;align-items:center;gap:8px;padding:4px 6px;
+  border-radius:var(--radius);cursor:pointer;font-size:12px;
+}
+.batch-dir-row:hover{background:var(--bg-2)}
+.batch-dir-row input[type=checkbox]{width:auto;flex:0 0 auto}
+.batch-dir-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-0)}
+.batch-dir-count{color:var(--text-2);font-size:11px;flex:0 0 auto}
+.batch-hint{font-size:11px;color:var(--text-2);margin-bottom:12px}
+.batch-field-row{
+  display:flex;align-items:center;gap:10px;
+  padding:7px 0;border-bottom:1px solid var(--border);
+}
+.batch-field-row:last-child{border-bottom:none}
+.batch-field-label{
+  display:flex;align-items:center;gap:6px;
+  font-size:12px;cursor:pointer;flex:0 0 160px;
+}
+.batch-field-label input{width:auto}
+.batch-field-row select{flex:1}
+#batch-preview-text{font-size:12px;color:var(--text-1)}
+
+/* ── SCROLLBAR ─────────────────────────────────────────── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg-1)}
+::-webkit-scrollbar-thumb{background:var(--bg-3);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#444}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════
+     START SCREEN
+════════════════════════════════════════════════════ -->
+<div id="start-screen">
+  <div>
+    <h1>Storyboard Editor</h1>
+    <p class="subtitle">Visual novel asset pipeline tool</p>
+  </div>
+  <div class="start-actions">
+    <button class="primary" id="btn-new-project">+ New Project</button>
+    <button id="btn-open-folder">Open Folder</button>
+  </div>
+  <div id="recent-list" style="display:none">
+    <h3>Recent Projects</h3>
+    <div id="recent-items"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     APP SHELL
+════════════════════════════════════════════════════ -->
+<div id="app-shell">
+
+  <!-- HEADER -->
+  <div id="header">
+    <button id="btn-home" title="Back to projects" style="font-size:18px;background:transparent;padding:4px 6px">⌂</button>
+    <input id="project-title" type="text" value="Untitled Project" spellcheck="false">
+    <span id="save-indicator">Saved</span>
+    <div class="header-spacer"></div>
+    <div class="header-btns">
+      <div class="stat-chip" title="Included scenes"><span class="dot dot-green"></span><span id="stat-included">0</span> included</div>
+      <div class="stat-chip" title="Maybe scenes"><span class="dot dot-yellow"></span><span id="stat-maybe">0</span> maybe</div>
+      <div class="stat-chip" title="Untagged scenes"><span class="dot dot-grey"></span><span id="stat-untagged">0</span> untagged</div>
+      <button id="btn-batch">Batch Edit</button>
+      <button id="btn-stats">Stats</button>
+      <button id="btn-export">Export</button>
+      <button id="btn-chars">Characters</button>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+    <div class="sidebar-section">
+      <h4>Filters</h4>
+      <div class="filter-row">
+        <label>Status</label>
+        <select id="filter-status" data-filter-key="status">
+          <option value="all">All</option>
+          <option value="included">Included</option>
+          <option value="maybe">Maybe</option>
+          <option value="excluded">Excluded</option>
+          <option value="untagged">Untagged</option>
+        </select>
+      </div>
+      <div class="filter-row">
+        <label>Content Rating</label>
+        <select id="filter-rating" data-filter-key="contentRating">
+          <option value="all">All</option>
+          <option value="explicit">Explicit</option>
+          <option value="suggestive">Suggestive</option>
+          <option value="tasteful">Tasteful</option>
+          <option value="neutral">Neutral</option>
+        </select>
+      </div>
+      <div class="filter-row">
+        <label>Character Present</label>
+        <select id="filter-character" data-filter-key="characterId">
+          <option value="all">Any / None</option>
+        </select>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="filter-show-excluded" data-filter-key="showExcluded">
+        <label for="filter-show-excluded" style="margin:0;font-size:12px">Show excluded</label>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="filter-tagged-only" data-filter-key="taggedOnly">
+        <label for="filter-tagged-only" style="margin:0;font-size:12px">Tagged only</label>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <h4>Select Mode</h4>
+      <div class="toggle-row">
+        <input type="checkbox" id="toggle-select-mode">
+        <label for="toggle-select-mode" style="margin:0;font-size:12px">Enable multi-select</label>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <h4>Project</h4>
+      <div id="stat-total-display" style="font-size:12px;color:var(--text-1)">0 scenes total</div>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div id="main-content">
+    <div id="bulk-bar">
+      <span id="bulk-count">0 selected</span>
+      <button onclick="App.Filters.bulkSetStatus('included')">Mark Included</button>
+      <button onclick="App.Filters.bulkSetStatus('maybe')">Mark Maybe</button>
+      <button onclick="App.Filters.bulkSetStatus('excluded')">Mark Excluded</button>
+      <button onclick="App.Filters.clearSelection()">Clear</button>
+    </div>
+
+    <div id="image-grid">
+      <div id="image-grid-inner">
+        <div id="empty-state">Open a project to begin.</div>
+      </div>
+    </div>
+
+    <!-- Scene editor slides up from bottom -->
+    <div id="scene-editor">
+      <div id="scene-editor-inner">
+        <div id="editor-preview">
+          <img id="editor-preview-img" src="" alt="">
+          <div id="ed-path">—</div>
+          <div id="ed-hash">—</div>
+        </div>
+        <div id="editor-fields">
+          <div id="editor-header">
+            <h3>Scene Editor</h3>
+            <button id="editor-close">✕</button>
+          </div>
+
+          <div class="field-group">
+            <label>Status</label>
+            <select id="ed-status" data-field="status">
+              <option value="untagged">Untagged</option>
+              <option value="included">Included</option>
+              <option value="maybe">Maybe</option>
+              <option value="excluded">Excluded</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label>Content Rating</label>
+            <select id="ed-content-rating" data-field="contentRating">
+              <option value="">— unset —</option>
+              <option value="explicit">Explicit</option>
+              <option value="suggestive">Suggestive</option>
+              <option value="tasteful">Tasteful</option>
+              <option value="neutral">Neutral</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label>Perspective (POV)</label>
+            <select id="ed-perspective" data-field="perspective">
+              <option value="">— none —</option>
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label>Shot Type</label>
+            <select id="ed-shot-type" data-field="shot.type">
+              <option value="">— unset —</option>
+              <option value="wide">Wide</option>
+              <option value="medium">Medium</option>
+              <option value="closeup">Closeup</option>
+              <option value="pov">POV</option>
+              <option value="detail">Detail</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label>Transition</label>
+            <select id="ed-transition" data-field="shot.transition">
+              <option value="">— unset —</option>
+              <option value="cut">Cut</option>
+              <option value="fade">Fade</option>
+              <option value="dissolve">Dissolve</option>
+              <option value="wipe">Wipe</option>
+              <option value="none">None</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label>Mood</label>
+            <input type="text" id="ed-mood" data-field="mood" placeholder="e.g. tense, romantic…">
+          </div>
+
+          <div class="field-group span3">
+            <label>Narrative (on-screen text)</label>
+            <textarea id="ed-narrative" data-field="narrative" rows="3" placeholder="Story text shown during this scene…"></textarea>
+          </div>
+
+          <div class="field-group span2">
+            <label>Production Notes (private)</label>
+            <textarea id="ed-notes" data-field="notes" rows="2" placeholder="Internal notes…"></textarea>
+          </div>
+
+          <div class="field-group">
+            <label>Alternate Of</label>
+            <select id="ed-alternate-of" data-field="alternateOf">
+              <option value="">— none —</option>
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label>Video Sequence ID</label>
+            <input type="text" id="ed-seq-id" data-field="video.sequenceId" placeholder="uuid or label…">
+          </div>
+          <div class="field-group">
+            <label>Index in Sequence</label>
+            <input type="number" id="ed-seq-index" data-field="video.indexInSequence" min="0">
+          </div>
+          <div class="field-group">
+            <label>Motion Prompt</label>
+            <input type="text" id="ed-motion-prompt" data-field="video.motionPrompt" placeholder="Camera motion…">
+          </div>
+
+          <div class="field-group span3">
+            <label>Tags</label>
+            <div class="tags-container" id="ed-tags-container">
+              <input id="ed-tag-input" list="tag-datalist" placeholder="Type and press Enter…" autocomplete="off">
+              <datalist id="tag-datalist"></datalist>
+            </div>
+          </div>
+
+          <div id="ed-chars-section">
+            <h4>Characters in Scene</h4>
+            <div id="ed-chars-list"></div>
+            <div id="ed-chars-add-row">
+              <select id="ed-chars-add-select"><option value="">— add character —</option></select>
+              <button id="ed-chars-add-btn">Add</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     CHARACTER MANAGER DIALOG
+════════════════════════════════════════════════════ -->
+<dialog id="char-manager-dialog">
+  <div class="dialog-header">
+    <h2>Characters</h2>
+    <button onclick="document.getElementById('char-manager-dialog').close()">✕</button>
+  </div>
+  <div class="dialog-body"><div id="char-list"></div></div>
+  <div class="dialog-footer">
+    <button class="primary" id="btn-add-char">+ Add Character</button>
+    <button onclick="document.getElementById('char-manager-dialog').close()">Done</button>
+  </div>
+</dialog>
+
+<!-- ═══════════════════════════════════════════════
+     STATS DIALOG
+════════════════════════════════════════════════════ -->
+<dialog id="stats-dialog">
+  <div class="dialog-header">
+    <h2>Project Statistics</h2>
+    <button onclick="document.getElementById('stats-dialog').close()">✕</button>
+  </div>
+  <div class="stats-grid">
+    <div class="stat-block"><div class="stat-num" id="stats-total">0</div><div class="stat-label">Total Scenes</div></div>
+    <div class="stat-block green"><div class="stat-num" id="stats-included">0</div><div class="stat-label">Included</div></div>
+    <div class="stat-block yellow"><div class="stat-num" id="stats-maybe">0</div><div class="stat-label">Maybe</div></div>
+    <div class="stat-block red"><div class="stat-num" id="stats-excluded">0</div><div class="stat-label">Excluded</div></div>
+    <div class="stat-block grey"><div class="stat-num" id="stats-untagged">0</div><div class="stat-label">Untagged</div></div>
+    <div class="stat-block"><div class="stat-num" id="stats-narrative-pct">—</div><div class="stat-label">Narrative Coverage</div></div>
+    <div class="stat-block"><div class="stat-num" id="stats-char-pct">—</div><div class="stat-label">Character Coverage</div></div>
+    <div class="stat-block"><div class="stat-num" id="stats-characters">0</div><div class="stat-label">Characters Defined</div></div>
+  </div>
+</dialog>
+
+<!-- ═══════════════════════════════════════════════
+     EXPORT DIALOG
+════════════════════════════════════════════════════ -->
+<dialog id="export-dialog">
+  <div class="dialog-header">
+    <h2>Export</h2>
+    <button onclick="document.getElementById('export-dialog').close()">✕</button>
+  </div>
+  <div class="dialog-body">
+    <div class="export-option" onclick="App.Export.exportFullJSON()">
+      <h4>Full Project JSON</h4>
+      <p>All scenes including excluded. Complete schema.</p>
+    </div>
+    <div class="export-option" onclick="App.Export.exportFilteredJSON()">
+      <h4>Included Scenes JSON</h4>
+      <p>Only included scenes, in array order.</p>
+    </div>
+    <div class="export-option" onclick="App.Export.exportLLMPackage()">
+      <h4>LLM Prompt Package</h4>
+      <p>Annotated Markdown + raw JSON — paste directly into an LLM context window.</p>
+    </div>
+  </div>
+</dialog>
+
+<!-- ═══════════════════════════════════════════════
+     BATCH EDIT DIALOG
+════════════════════════════════════════════════════ -->
+<dialog id="batch-edit-dialog">
+  <div class="dialog-header">
+    <h2>Batch Edit Scenes</h2>
+    <button onclick="document.getElementById('batch-edit-dialog').close()">✕</button>
+  </div>
+  <div class="batch-body">
+    <div class="batch-scope-pane">
+      <div class="batch-section-title">Scope</div>
+      <label class="batch-all-row">
+        <input type="checkbox" id="batch-scope-all"> All scenes
+      </label>
+      <div id="batch-folder-list"></div>
+    </div>
+    <div class="batch-fields-pane">
+      <div class="batch-section-title">Fields to Apply</div>
+      <p class="batch-hint">Check a field and choose a value. Unchecked fields are left unchanged.</p>
+      <div id="batch-field-rows"></div>
+    </div>
+  </div>
+  <div class="dialog-footer">
+    <span id="batch-preview-text">0 scenes selected</span>
+    <div style="display:flex;gap:8px">
+      <button onclick="document.getElementById('batch-edit-dialog').close()">Cancel</button>
+      <button class="primary" id="btn-batch-apply">Apply</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ═══════════════════════════════════════════════
+     JAVASCRIPT
+════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+const App = {};
+
+// ═══════════════════════════════════════════════════════
+// CONSTANTS & SCHEMA BUILDERS
+// ═══════════════════════════════════════════════════════
+const IMG_EXTS = new Set(['jpg','jpeg','png','webp','gif']);
+const JSON_FILENAME = 'storyboard.json';
+
+function buildEmptyProject(title) {
+  return {
+    project: {
+      id: crypto.randomUUID(), title: title || 'Untitled Project',
+      version: '1.0.0', created: new Date().toISOString(), modified: new Date().toISOString(),
+    },
+    characters: [],
+    scenes: [],
+  };
+}
+
+// file = { name: 'scene_001.jpg', path: '00-prelude/scene_001.jpg' }
+function buildEmptyScene(file) {
+  return {
+    id: crypto.randomUUID(),
+    status: 'untagged',
+    asset: { filename: file.name, path: file.path, type: 'image', hash: '', duration: null },
+    contentRating: '',
+    perspective: '',
+    characters: [],
+    shot: { type: '', transition: '' },
+    narrative: '',
+    mood: '',
+    notes: '',
+    video: { sequenceId: '', indexInSequence: 0, motionPrompt: '' },
+    audio: null,
+    alternateOf: '',
+    tags: [],
+    branch: null,
+    gamification: null,
+  };
+}
+
+// ═══════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════
+App.Utils = {
+  uuid() { return crypto.randomUUID(); },
+  debounce(fn, ms) {
+    let t;
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  },
+  setNested(obj, path, value) {
+    const parts = path.split('.');
+    let cur = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (cur[parts[i]] === null || typeof cur[parts[i]] !== 'object') cur[parts[i]] = {};
+      cur = cur[parts[i]];
+    }
+    cur[parts[parts.length - 1]] = value;
+  },
+  // Extract parent directory from a relative path. Root files return ''.
+  dirOf(path) {
+    const idx = path.lastIndexOf('/');
+    return idx >= 0 ? path.substring(0, idx) : '';
+  },
+  sanitizeFilename(s) {
+    return s.replace(/[^a-z0-9_\-]/gi, '_');
+  },
+  esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  },
+};
+
+// ═══════════════════════════════════════════════════════
+// INDEXEDDB HELPERS
+// ═══════════════════════════════════════════════════════
+App.IDB = (function() {
+  let _db = null;
+
+  function open() {
+    if (_db) return Promise.resolve(_db);
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('StoryboardEditor', 1);
+      req.onupgradeneeded = e => e.target.result.createObjectStore('handles', { keyPath: 'key' });
+      req.onsuccess = e => { _db = e.target.result; resolve(_db); };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function put(key, value) {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('handles', 'readwrite');
+      tx.objectStore('handles').put({ key, value });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function get(key) {
+    const db = await open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('handles', 'readonly');
+      const req = tx.objectStore('handles').get(key);
+      req.onsuccess = () => resolve(req.result?.value ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  return { put, get };
+})();
+
+// ═══════════════════════════════════════════════════════
+// STATE MANAGEMENT
+// ═══════════════════════════════════════════════════════
+App.State = (function() {
+  const _state = {
+    project: null,
+    dirHandle: null,
+    jsonFileHandle: null,
+    selectedSceneId: null,
+    filter: { status: 'all', contentRating: 'all', characterId: 'all', showExcluded: false, taggedOnly: false },
+    dirty: false,
+    thumbnailCache: new Map(),  // keyed by asset.path
+    fileHandleCache: new Map(), // keyed by asset.path
+    _sceneIndex: new Map(),     // id -> scene
+    selectMode: false,
+    selectedCards: new Set(),
+  };
+  const _subs = {};
+
+  function _emit(event, data) { (_subs[event] || []).forEach(fn => fn(data)); }
+  function get(key) { return key ? _state[key] : _state; }
+  function set(key, value) { _state[key] = value; _emit(key, value); }
+
+  function mutateProject(fn) {
+    if (!_state.project) return;
+    fn(_state.project);
+    _state.project.project.modified = new Date().toISOString();
+    _state.dirty = true;
+    _state._sceneIndex.clear();
+    _state.project.scenes.forEach(s => _state._sceneIndex.set(s.id, s));
+    _emit('projectChange', _state.project);
+    App.FS.scheduleSave();
+  }
+
+  function subscribe(event, fn) {
+    if (!_subs[event]) _subs[event] = [];
+    _subs[event].push(fn);
+  }
+
+  function initIndex() {
+    _state._sceneIndex.clear();
+    if (_state.project) _state.project.scenes.forEach(s => _state._sceneIndex.set(s.id, s));
+  }
+
+  return { get, set, mutateProject, subscribe, initIndex };
+})();
+
+// ═══════════════════════════════════════════════════════
+// FILE SYSTEM ACCESS API
+// ═══════════════════════════════════════════════════════
+App.FS = (function() {
+  let _saveTimer = null;
+
+  async function openFolder() {
+    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    App.State.set('dirHandle', handle);
+    return handle;
+  }
+
+  // Recursively enumerate all image files under dirHandle.
+  // Returns array of { name, path, handle } sorted:
+  //   root-level files first, then subdirectories in natural/numeric order,
+  //   files within each directory in natural/numeric order.
+  async function enumerateImages(dirHandle) {
+    const files = [];
+    const fc = App.State.get('fileHandleCache');
+    fc.clear();
+
+    async function walkDir(handle, prefix) {
+      for await (const [name, entry] of handle.entries()) {
+        if (entry.kind === 'directory') {
+          const sub = prefix ? `${prefix}/${name}` : name;
+          await walkDir(entry, sub);
+        } else if (entry.kind === 'file') {
+          const ext = name.split('.').pop().toLowerCase();
+          if (IMG_EXTS.has(ext)) {
+            const path = prefix ? `${prefix}/${name}` : name;
+            files.push({ name, path, handle: entry });
+            fc.set(path, entry);
+          }
+        }
+      }
+    }
+
+    await walkDir(dirHandle, '');
+
+    // Sort: root files (no '/') first, then by directory natural order, then by filename
+    files.sort((a, b) => {
+      const dirA = App.Utils.dirOf(a.path);
+      const dirB = App.Utils.dirOf(b.path);
+      if (dirA === '' && dirB !== '') return -1;
+      if (dirA !== '' && dirB === '') return 1;
+      if (dirA !== dirB) {
+        return dirA.localeCompare(dirB, undefined, { numeric: true, sensitivity: 'base' });
+      }
+      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    return files;
+  }
+
+  async function loadProject(dirHandle) {
+    let jsonHandle;
+    try {
+      jsonHandle = await dirHandle.getFileHandle(JSON_FILENAME, { create: false });
+    } catch { return null; }
+    try {
+      const file = await jsonHandle.getFile();
+      const text = await file.text();
+      App.State.set('jsonFileHandle', jsonHandle);
+      return JSON.parse(text);
+    } catch (e) {
+      console.error('Failed to parse project JSON:', e);
+      return null;
+    }
+  }
+
+  async function createProjectFile(dirHandle) {
+    const handle = await dirHandle.getFileHandle(JSON_FILENAME, { create: true });
+    App.State.set('jsonFileHandle', handle);
+    return handle;
+  }
+
+  async function saveNow() {
+    const handle = App.State.get('jsonFileHandle');
+    if (!handle) return;
+    const project = App.State.get('project');
+    if (!project) return;
+    _setSaveIndicator('saving');
+    try {
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify(project, null, 2));
+      await writable.close();
+      App.State.set('dirty', false);
+      _setSaveIndicator('saved');
+    } catch (e) {
+      console.error('Save failed:', e);
+      _setSaveIndicator('idle');
+    }
+  }
+
+  function scheduleSave() {
+    clearTimeout(_saveTimer);
+    _setSaveIndicator('saving');
+    _saveTimer = setTimeout(saveNow, 800);
+  }
+
+  function _setSaveIndicator(state) {
+    const el = document.getElementById('save-indicator');
+    if (!el) return;
+    if (state === 'saving') {
+      el.textContent = 'Saving…'; el.style.color = 'var(--yellow)'; el.style.opacity = '1';
+    } else if (state === 'saved') {
+      el.textContent = 'Saved'; el.style.color = 'var(--green)'; el.style.opacity = '1';
+      setTimeout(() => { el.style.opacity = '0'; }, 2000);
+    } else {
+      el.style.opacity = '0';
+    }
+  }
+
+  async function rememberProject(dirHandle, title) {
+    try {
+      await App.IDB.put('lastDirHandle', dirHandle);
+      await App.IDB.put('lastJsonHandle', App.State.get('jsonFileHandle'));
+    } catch (e) { console.warn('IDB handle storage failed:', e); }
+    const recent = JSON.parse(localStorage.getItem('storyboard_recent') || '[]');
+    const entry = { title, folderName: dirHandle.name, lastOpened: new Date().toISOString() };
+    const idx = recent.findIndex(r => r.folderName === dirHandle.name);
+    if (idx >= 0) recent.splice(idx, 1);
+    recent.unshift(entry);
+    localStorage.setItem('storyboard_recent', JSON.stringify(recent.slice(0, 10)));
+  }
+
+  async function tryRestoreLastProject() {
+    try {
+      const dirHandle = await App.IDB.get('lastDirHandle');
+      if (!dirHandle) return null;
+      const perm = await dirHandle.queryPermission({ mode: 'readwrite' });
+      if (perm === 'granted') {
+        App.State.set('dirHandle', dirHandle);
+        const jsonHandle = await App.IDB.get('lastJsonHandle');
+        if (jsonHandle) App.State.set('jsonFileHandle', jsonHandle);
+        return dirHandle;
+      }
+      return { needsPermission: true, handle: dirHandle };
+    } catch { return null; }
+  }
+
+  return { openFolder, enumerateImages, loadProject, createProjectFile, saveNow, scheduleSave, rememberProject, tryRestoreLastProject };
+})();
+
+// ═══════════════════════════════════════════════════════
+// SCENE RECONCILIATION
+// Keys by asset.path — safe across subdirectories with duplicate filenames.
+// ═══════════════════════════════════════════════════════
+function reconcileScenes(imageFiles) {
+  App.State.mutateProject(project => {
+    const existing = new Map(project.scenes.map(s => [s.asset.path, s]));
+    for (const f of imageFiles) {
+      if (!existing.has(f.path)) {
+        project.scenes.push(buildEmptyScene(f));
+      }
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════
+// LAZY LOADER
+// ═══════════════════════════════════════════════════════
+App.LazyLoader = (function() {
+  let _observer = null;
+
+  function init() {
+    if (_observer) _observer.disconnect();
+    _observer = new IntersectionObserver(_onIntersect, {
+      root: document.getElementById('image-grid'),
+      rootMargin: '300px 0px',
+      threshold: 0,
+    });
+  }
+
+  async function _onIntersect(entries) {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const card = entry.target;
+      const img = card.querySelector('img');
+      if (!img || img.src) continue;
+      _observer.unobserve(card);
+
+      const scene = App.State.get('_sceneIndex').get(card.dataset.sceneId);
+      if (!scene) continue;
+      const assetPath = scene.asset.path;
+
+      const thumbCache = App.State.get('thumbnailCache');
+      if (thumbCache.has(assetPath)) { img.src = thumbCache.get(assetPath); continue; }
+
+      const handle = App.State.get('fileHandleCache').get(assetPath);
+      if (!handle) continue;
+      try {
+        const file = await handle.getFile();
+        const url = URL.createObjectURL(file);
+        thumbCache.set(assetPath, url);
+        img.src = url;
+      } catch (e) {
+        if (e.name === 'NotFoundError') card.classList.add('file-missing');
+      }
+    }
+  }
+
+  function observe(el) { if (_observer) _observer.observe(el); }
+
+  function teardown() {
+    if (_observer) _observer.disconnect();
+    App.State.get('thumbnailCache').forEach(url => URL.revokeObjectURL(url));
+    App.State.get('thumbnailCache').clear();
+  }
+
+  return { init, observe, teardown };
+})();
+
+// ═══════════════════════════════════════════════════════
+// DRAG AND DROP
+// ═══════════════════════════════════════════════════════
+App.DnD = (function() {
+  let _srcId = null;
+
+  function onDragStart(e) {
+    _srcId = e.currentTarget.dataset.sceneId;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', _srcId);
+    e.currentTarget.classList.add('dragging');
+  }
+  function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const t = e.currentTarget;
+    if (t.dataset.sceneId !== _srcId) t.classList.add('drag-over');
+  }
+  function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+  function onDrop(e) {
+    e.preventDefault();
+    const targetId = e.currentTarget.dataset.sceneId;
+    e.currentTarget.classList.remove('drag-over');
+    if (!targetId || targetId === _srcId) return;
+    App.State.mutateProject(project => {
+      const scenes = project.scenes;
+      const fi = scenes.findIndex(s => s.id === _srcId);
+      const ti = scenes.findIndex(s => s.id === targetId);
+      if (fi < 0 || ti < 0) return;
+      const [moved] = scenes.splice(fi, 1);
+      scenes.splice(ti, 0, moved);
+    });
+  }
+  function onDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+    document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    _srcId = null;
+  }
+
+  return { onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd };
+})();
+
+// ═══════════════════════════════════════════════════════
+// IMAGE GRID
+// ═══════════════════════════════════════════════════════
+App.Grid = (function() {
+  let _inner;
+  let _initialized = false;
+
+  function init() {
+    _inner = document.getElementById('image-grid-inner');
+    if (!_initialized) {
+      App.State.subscribe('projectChange', render);
+      App.State.subscribe('filterChange', render);
+      _initialized = true;
+    }
+  }
+
+  function _applyFilter(scenes, filter) {
+    return scenes.filter(scene => {
+      const status = scene.status || 'untagged';
+      if (!filter.showExcluded && status === 'excluded') return false;
+      if (filter.status !== 'all') {
+        if (filter.status === 'untagged' && status !== 'untagged') return false;
+        if (filter.status !== 'untagged' && status !== filter.status) return false;
+      }
+      if (filter.contentRating !== 'all' && scene.contentRating !== filter.contentRating) return false;
+      if (filter.characterId !== 'all') {
+        if (!(scene.characters || []).some(c => c.characterId === filter.characterId)) return false;
+      }
+      if (filter.taggedOnly && (!scene.tags || scene.tags.length === 0)) return false;
+      return true;
+    });
+  }
+
+  function render() {
+    if (!_inner) return;
+    const project = App.State.get('project');
+    if (!project) { _inner.innerHTML = '<div id="empty-state">Open a project to begin.</div>'; return; }
+
+    const scenes = _applyFilter(project.scenes, App.State.get('filter'));
+    const selectedId = App.State.get('selectedSceneId');
+    const selectMode = App.State.get('selectMode');
+    const selectedCards = App.State.get('selectedCards');
+
+    _inner.innerHTML = '';
+    if (scenes.length === 0) {
+      _inner.innerHTML = '<div id="empty-state">No scenes match the current filter.</div>';
+      return;
+    }
+
+    const frag = document.createDocumentFragment();
+    for (const scene of scenes) {
+      const card = _buildCard(scene, selectedId, selectMode, selectedCards);
+      frag.appendChild(card);
+      App.LazyLoader.observe(card);
+    }
+    _inner.appendChild(frag);
+  }
+
+  function _buildCard(scene, selectedId, selectMode, selectedCards) {
+    const card = document.createElement('div');
+    card.className = 'scene-card' + (selectMode ? ' select-mode' : '');
+    card.dataset.sceneId = scene.id;
+    card.dataset.status = scene.status || 'untagged';
+    card.draggable = !selectMode;
+    if (scene.id === selectedId || selectedCards.has(scene.id)) card.classList.add('selected');
+
+    const img = document.createElement('img');
+    img.alt = scene.asset.path;
+
+    const label = document.createElement('div');
+    label.className = 'card-label';
+    label.textContent = scene.asset.path;  // shows full relative path on hover
+
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.className = 'card-check';
+    check.checked = selectedCards.has(scene.id);
+    check.addEventListener('change', e => {
+      e.stopPropagation();
+      if (e.target.checked) App.State.get('selectedCards').add(scene.id);
+      else App.State.get('selectedCards').delete(scene.id);
+      App.Filters.updateBulkBar();
+    });
+
+    card.appendChild(check);
+    card.appendChild(img);
+    card.appendChild(label);
+
+    card.addEventListener('click', e => {
+      if (e.target === check) return;
+      if (App.State.get('selectMode')) {
+        const sc = App.State.get('selectedCards');
+        if (sc.has(scene.id)) sc.delete(scene.id); else sc.add(scene.id);
+        check.checked = sc.has(scene.id);
+        card.classList.toggle('selected', sc.has(scene.id));
+        App.Filters.updateBulkBar();
+      } else {
+        App.Editor.open(scene.id);
+      }
+    });
+
+    card.addEventListener('dragstart', App.DnD.onDragStart);
+    card.addEventListener('dragover',  App.DnD.onDragOver);
+    card.addEventListener('dragleave', App.DnD.onDragLeave);
+    card.addEventListener('drop',      App.DnD.onDrop);
+    card.addEventListener('dragend',   App.DnD.onDragEnd);
+
+    return card;
+  }
+
+  function refreshCard(sceneId) {
+    const card = _inner?.querySelector(`[data-scene-id="${sceneId}"]`);
+    if (!card) return;
+    const scene = App.State.get('_sceneIndex').get(sceneId);
+    if (!scene) return;
+    card.dataset.status = scene.status || 'untagged';
+    card.classList.toggle('selected', sceneId === App.State.get('selectedSceneId'));
+  }
+
+  return { init, render, refreshCard };
+})();
+
+// ═══════════════════════════════════════════════════════
+// SCENE EDITOR
+// ═══════════════════════════════════════════════════════
+App.Editor = (function() {
+  let _currentId = null;
+  let _panel;
+  let _initialized = false;
+
+  function init() {
+    if (_initialized) return;
+    _initialized = true;
+    _panel = document.getElementById('scene-editor');
+
+    const fields = document.getElementById('editor-fields');
+    fields.addEventListener('change', _onFieldChange);
+    fields.addEventListener('input',  _onFieldInput);
+
+    document.getElementById('editor-close').addEventListener('click', close);
+    document.getElementById('ed-chars-add-btn').addEventListener('click', _addCharacter);
+    document.getElementById('ed-tag-input').addEventListener('keydown', _onTagKeydown);
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && _currentId) close();
+    });
+  }
+
+  function open(sceneId) {
+    _currentId = sceneId;
+    App.State.set('selectedSceneId', sceneId);
+    const scene = App.State.get('_sceneIndex').get(sceneId);
+    if (!scene) return;
+    _populate(scene);
+    _panel.classList.add('open');
+    App.Grid.refreshCard(sceneId);
+    _loadPreviewImage(scene);
+  }
+
+  function close() {
+    const prev = _currentId;
+    _currentId = null;
+    App.State.set('selectedSceneId', null);
+    _panel.classList.remove('open');
+    if (prev) App.Grid.refreshCard(prev);
+  }
+
+  function _loadPreviewImage(scene) {
+    const img = document.getElementById('editor-preview-img');
+    img.src = '';
+    const assetPath = scene.asset.path;
+    const thumbCache = App.State.get('thumbnailCache');
+    if (thumbCache.has(assetPath)) { img.src = thumbCache.get(assetPath); return; }
+    const handle = App.State.get('fileHandleCache').get(assetPath);
+    if (!handle) return;
+    handle.getFile().then(f => {
+      const url = URL.createObjectURL(f);
+      thumbCache.set(assetPath, url);
+      img.src = url;
+    }).catch(() => {});
+  }
+
+  function _populate(scene) {
+    const project = App.State.get('project');
+
+    document.getElementById('ed-path').textContent  = scene.asset.path;
+    document.getElementById('ed-hash').textContent  = scene.asset.hash || '(computing…)';
+    document.getElementById('ed-status').value      = scene.status || 'untagged';
+    document.getElementById('ed-content-rating').value = scene.contentRating || '';
+    document.getElementById('ed-shot-type').value   = scene.shot?.type || '';
+    document.getElementById('ed-transition').value  = scene.shot?.transition || '';
+    document.getElementById('ed-narrative').value   = scene.narrative || '';
+    document.getElementById('ed-mood').value        = scene.mood || '';
+    document.getElementById('ed-notes').value       = scene.notes || '';
+    document.getElementById('ed-seq-id').value      = scene.video?.sequenceId || '';
+    document.getElementById('ed-seq-index').value   = scene.video?.indexInSequence ?? 0;
+    document.getElementById('ed-motion-prompt').value = scene.video?.motionPrompt || '';
+
+    // Perspective dropdown
+    const perspEl = document.getElementById('ed-perspective');
+    perspEl.innerHTML = '<option value="">— none —</option>';
+    for (const c of project.characters) {
+      const opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.name;
+      if (c.id === scene.perspective) opt.selected = true;
+      perspEl.appendChild(opt);
+    }
+
+    // Alternate-of dropdown
+    const altEl = document.getElementById('ed-alternate-of');
+    altEl.innerHTML = '<option value="">— none —</option>';
+    for (const s of project.scenes) {
+      if (s.id === scene.id) continue;
+      const opt = document.createElement('option');
+      opt.value = s.id; opt.textContent = s.asset.path;
+      if (s.id === scene.alternateOf) opt.selected = true;
+      altEl.appendChild(opt);
+    }
+
+    // Add-character select
+    const addSel = document.getElementById('ed-chars-add-select');
+    addSel.innerHTML = '<option value="">— add character —</option>';
+    for (const c of project.characters) {
+      const opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.name; addSel.appendChild(opt);
+    }
+
+    _populateCharacters(scene);
+    _populateTags(scene);
+    _buildTagDatalist();
+  }
+
+  function _populateCharacters(scene) {
+    const list = document.getElementById('ed-chars-list');
+    const project = App.State.get('project');
+    list.innerHTML = '';
+    (scene.characters || []).forEach((entry, idx) => {
+      const char = project.characters.find(c => c.id === entry.characterId);
+      const row = document.createElement('div');
+      row.className = 'char-entry';
+      row.innerHTML = `
+        <span class="char-name">${App.Utils.esc(char?.name || 'Unknown')}</span>
+        <input type="text" placeholder="pose" value="${App.Utils.esc(entry.pose || '')}" data-char-idx="${idx}" data-char-field="pose">
+        <input type="text" placeholder="expression" value="${App.Utils.esc(entry.expression || '')}" data-char-idx="${idx}" data-char-field="expression">
+        <button data-remove-char="${idx}">×</button>`;
+      row.querySelector('[data-char-field="pose"]').addEventListener('input', e => _onCharFieldInput(e, idx, 'pose'));
+      row.querySelector('[data-char-field="expression"]').addEventListener('input', e => _onCharFieldInput(e, idx, 'expression'));
+      row.querySelector('[data-remove-char]').addEventListener('click', () => _removeCharacter(idx));
+      list.appendChild(row);
+    });
+  }
+
+  function _populateTags(scene) {
+    const container = document.getElementById('ed-tags-container');
+    container.querySelectorAll('.tag-chip').forEach(el => el.remove());
+    const input = document.getElementById('ed-tag-input');
+    (scene.tags || []).forEach(tag => {
+      const chip = document.createElement('span');
+      chip.className = 'tag-chip';
+      chip.innerHTML = `${App.Utils.esc(tag)} <button data-remove-tag="${App.Utils.esc(tag)}">×</button>`;
+      chip.querySelector('button').addEventListener('click', () => _removeTag(tag));
+      container.insertBefore(chip, input);
+    });
+  }
+
+  function _buildTagDatalist() {
+    const dl = document.getElementById('tag-datalist');
+    const allTags = new Set();
+    App.State.get('project').scenes.forEach(s => s.tags?.forEach(t => allTags.add(t)));
+    dl.innerHTML = '';
+    allTags.forEach(tag => { const o = document.createElement('option'); o.value = tag; dl.appendChild(o); });
+  }
+
+  function _onTagKeydown(e) {
+    if ((e.key === 'Enter' || e.key === ',') && e.target.value.trim()) {
+      e.preventDefault();
+      const tag = e.target.value.trim().replace(/,$/, '');
+      if (!tag) return;
+      App.State.mutateProject(project => {
+        const scene = project.scenes.find(s => s.id === _currentId);
+        if (!scene.tags) scene.tags = [];
+        if (!scene.tags.includes(tag)) scene.tags.push(tag);
+      });
+      e.target.value = '';
+      _populateTags(App.State.get('_sceneIndex').get(_currentId));
+      _buildTagDatalist();
+    }
+  }
+
+  function _removeTag(tag) {
+    App.State.mutateProject(project => {
+      const scene = project.scenes.find(s => s.id === _currentId);
+      scene.tags = (scene.tags || []).filter(t => t !== tag);
+    });
+    _populateTags(App.State.get('_sceneIndex').get(_currentId));
+  }
+
+  function _addCharacter() {
+    const sel = document.getElementById('ed-chars-add-select');
+    const charId = sel.value;
+    if (!charId) return;
+    App.State.mutateProject(project => {
+      const scene = project.scenes.find(s => s.id === _currentId);
+      if (!scene.characters) scene.characters = [];
+      if (!scene.characters.some(c => c.characterId === charId)) {
+        scene.characters.push({ characterId: charId, pose: '', expression: '' });
+      }
+    });
+    sel.value = '';
+    _populateCharacters(App.State.get('_sceneIndex').get(_currentId));
+  }
+
+  function _removeCharacter(idx) {
+    App.State.mutateProject(project => {
+      project.scenes.find(s => s.id === _currentId)?.characters.splice(idx, 1);
+    });
+    _populateCharacters(App.State.get('_sceneIndex').get(_currentId));
+  }
+
+  function _onCharFieldInput(e, idx, field) {
+    App.State.mutateProject(project => {
+      const scene = project.scenes.find(s => s.id === _currentId);
+      if (scene?.characters[idx]) scene.characters[idx][field] = e.target.value;
+    });
+  }
+
+  function _onFieldChange(e) {
+    const field = e.target.dataset.field;
+    if (!field || !_currentId) return;
+    let value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    if (e.target.type === 'number') value = Number(value);
+    App.State.mutateProject(project => {
+      const scene = project.scenes.find(s => s.id === _currentId);
+      if (scene) App.Utils.setNested(scene, field, value);
+    });
+    if (field === 'status') App.Grid.refreshCard(_currentId);
+  }
+
+  function _onFieldInput(e) {
+    const field = e.target.dataset.field;
+    const textFields = ['narrative', 'mood', 'notes', 'video.motionPrompt', 'video.sequenceId'];
+    if (!field || !textFields.includes(field) || !_currentId) return;
+    const project = App.State.get('project');
+    if (!project) return;
+    const scene = project.scenes.find(s => s.id === _currentId);
+    if (!scene) return;
+    App.Utils.setNested(scene, field, e.target.value);
+    project.project.modified = new Date().toISOString();
+    App.State.set('dirty', true);
+    App.FS.scheduleSave();
+  }
+
+  function refreshHash(sceneId) {
+    if (sceneId !== _currentId) return;
+    const scene = App.State.get('_sceneIndex').get(sceneId);
+    if (scene) document.getElementById('ed-hash').textContent = scene.asset.hash || '(computing…)';
+  }
+
+  return { init, open, close, refreshHash };
+})();
+
+// ═══════════════════════════════════════════════════════
+// CHARACTER MANAGER
+// ═══════════════════════════════════════════════════════
+App.CharMgr = (function() {
+  const _dialog = document.getElementById('char-manager-dialog');
+
+  function open() { _render(); _dialog.showModal(); }
+
+  function _render() {
+    const list = document.getElementById('char-list');
+    const chars = App.State.get('project')?.characters || [];
+    list.innerHTML = '';
+    if (chars.length === 0) {
+      list.innerHTML = '<p style="color:var(--text-2);font-size:13px">No characters yet. Add one below.</p>';
+      return;
+    }
+    chars.forEach(char => {
+      const row = document.createElement('div');
+      row.className = 'char-row';
+      row.innerHTML = `
+        <div class="char-row-top">
+          <input class="char-name-input" type="text" value="${App.Utils.esc(char.name)}" data-char-id="${char.id}" data-field="name" placeholder="Name" style="flex:1">
+          <select data-char-id="${char.id}" data-field="role" style="width:120px">
+            <option value="protagonist" ${char.role==='protagonist'?'selected':''}>Protagonist</option>
+            <option value="npc" ${char.role==='npc'?'selected':''}>NPC</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:4px;white-space:nowrap;color:var(--text-1);font-size:12px;margin:0">
+            <input type="checkbox" style="width:auto" ${char.playable?'checked':''} data-char-id="${char.id}" data-field="playable"> Playable
+          </label>
+          <button class="danger" data-delete-char="${char.id}">Delete</button>
+        </div>
+        <div class="char-row-fields">
+          <div class="field-group" style="grid-column:span 2">
+            <label>Description</label>
+            <textarea data-char-id="${char.id}" data-field="description" rows="2">${App.Utils.esc(char.description||'')}</textarea>
+          </div>
+        </div>`;
+      list.appendChild(row);
+    });
+  }
+
+  _dialog.addEventListener('change', e => {
+    const charId = e.target.dataset.charId;
+    const field = e.target.dataset.field;
+    if (!charId || !field) return;
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    App.State.mutateProject(project => {
+      const char = project.characters.find(c => c.id === charId);
+      if (char) char[field] = value;
+    });
+    _updateFilterDropdown();
+  });
+
+  _dialog.addEventListener('input', e => {
+    const charId = e.target.dataset.charId;
+    const field = e.target.dataset.field;
+    if (!charId || !field) return;
+    const project = App.State.get('project');
+    const char = project?.characters.find(c => c.id === charId);
+    if (char) {
+      char[field] = e.target.value;
+      project.project.modified = new Date().toISOString();
+      App.FS.scheduleSave();
+    }
+  });
+
+  _dialog.addEventListener('click', e => {
+    const charId = e.target.dataset.deleteChar;
+    if (!charId) return;
+    if (!confirm('Delete this character? Scene references are not removed automatically.')) return;
+    App.State.mutateProject(project => {
+      project.characters = project.characters.filter(c => c.id !== charId);
+    });
+    _render();
+    _updateFilterDropdown();
+  });
+
+  document.getElementById('btn-add-char').addEventListener('click', () => {
+    App.State.mutateProject(project => {
+      project.characters.push({ id: crypto.randomUUID(), name: 'New Character', role: 'npc', playable: false, description: '', tags: [] });
+    });
+    _render();
+    _updateFilterDropdown();
+  });
+
+  function _updateFilterDropdown() {
+    const sel = document.getElementById('filter-character');
+    const chars = App.State.get('project')?.characters || [];
+    const cur = sel.value;
+    sel.innerHTML = '<option value="all">Any / None</option>';
+    chars.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.name;
+      if (c.id === cur) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  return { open, updateFilterDropdown: _updateFilterDropdown };
+})();
+
+// ═══════════════════════════════════════════════════════
+// FILTERS
+// ═══════════════════════════════════════════════════════
+App.Filters = (function() {
+  let _initialized = false;
+
+  function init() {
+    if (_initialized) return;
+    _initialized = true;
+    ['filter-status','filter-rating','filter-character'].forEach(id =>
+      document.getElementById(id)?.addEventListener('change', _onFilterChange));
+    document.getElementById('filter-show-excluded')?.addEventListener('change', _onFilterChange);
+    document.getElementById('filter-tagged-only')?.addEventListener('change', _onFilterChange);
+    document.getElementById('toggle-select-mode')?.addEventListener('change', e => {
+      App.State.set('selectMode', e.target.checked);
+      App.State.get('selectedCards').clear();
+      App.Grid.render();
+      updateBulkBar();
+    });
+  }
+
+  function _onFilterChange(e) {
+    const key = e.target.dataset.filterKey;
+    if (!key) return;
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    App.State.set('filter', { ...App.State.get('filter'), [key]: value });
+    // 'filter' key change triggers the bootstrap bridge → emits 'filterChange'
+  }
+
+  function bulkSetStatus(status) {
+    const ids = [...App.State.get('selectedCards')];
+    if (!ids.length) return;
+    App.State.mutateProject(project => {
+      project.scenes.forEach(s => { if (ids.includes(s.id)) s.status = status; });
+    });
+    App.State.get('selectedCards').clear();
+    updateBulkBar();
+  }
+
+  function clearSelection() {
+    App.State.get('selectedCards').clear();
+    App.Grid.render();
+    updateBulkBar();
+  }
+
+  function updateBulkBar() {
+    const count = App.State.get('selectedCards').size;
+    document.getElementById('bulk-bar').classList.toggle('visible', count > 0);
+    document.getElementById('bulk-count').textContent = `${count} selected`;
+  }
+
+  return { init, bulkSetStatus, clearSelection, updateBulkBar };
+})();
+
+// ═══════════════════════════════════════════════════════
+// BATCH EDIT
+// ═══════════════════════════════════════════════════════
+App.BatchEdit = (function() {
+  const _dialog = document.getElementById('batch-edit-dialog');
+
+  // Non-freetext fields available for batch editing.
+  // 'dynamic' means options are built from project data at open time.
+  const FIELDS = [
+    { key: 'status',        label: 'Status',         options: ['included','excluded','maybe','untagged'] },
+    { key: 'contentRating', label: 'Content Rating',  options: ['explicit','suggestive','tasteful','neutral'] },
+    { key: 'shot.type',     label: 'Shot Type',       options: ['wide','medium','closeup','pov','detail'] },
+    { key: 'shot.transition', label: 'Transition',    options: ['cut','fade','dissolve','wipe','none'] },
+    { key: 'perspective',   label: 'Perspective (POV)', dynamic: true },
+  ];
+
+  function _getSceneDir(scene) { return App.Utils.dirOf(scene.asset.path); }
+
+  function _buildDirMap(project) {
+    const map = new Map(); // dir -> count
+    project.scenes.forEach(s => {
+      const d = _getSceneDir(s);
+      map.set(d, (map.get(d) || 0) + 1);
+    });
+    return [...map.entries()].sort(([a], [b]) => {
+      if (a === '' && b !== '') return -1;
+      if (a !== '' && b === '') return 1;
+      return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }
+
+  function open() {
+    const project = App.State.get('project');
+    if (!project) return;
+
+    const dirs = _buildDirMap(project);
+
+    // ── Scope pane ──────────────────────────────────────
+    const folderList = document.getElementById('batch-folder-list');
+    folderList.innerHTML = '';
+    dirs.forEach(([dir, count]) => {
+      const label = document.createElement('label');
+      label.className = 'batch-dir-row';
+      const display = dir === '' ? '(root folder)' : dir;
+      label.innerHTML = `
+        <input type="checkbox" class="batch-dir-check" data-dir="${App.Utils.esc(dir)}">
+        <span class="batch-dir-name" title="${App.Utils.esc(display)}">${App.Utils.esc(display)}</span>
+        <span class="batch-dir-count">${count}</span>`;
+      folderList.appendChild(label);
+    });
+
+    // "All scenes" master checkbox
+    const allCheck = document.getElementById('batch-scope-all');
+    allCheck.checked = false;
+    // Use fresh listeners by replacing the element clone trick isn't needed — just use named fn
+    allCheck.onchange = () => {
+      document.querySelectorAll('.batch-dir-check').forEach(cb => { cb.checked = allCheck.checked; });
+      _updatePreview();
+    };
+    folderList.addEventListener('change', e => {
+      if (!e.target.classList.contains('batch-dir-check')) return;
+      const all = [...document.querySelectorAll('.batch-dir-check')];
+      allCheck.checked = all.length > 0 && all.every(c => c.checked);
+      _updatePreview();
+    });
+
+    // ── Fields pane ──────────────────────────────────────
+    const fieldRows = document.getElementById('batch-field-rows');
+    fieldRows.innerHTML = '';
+    const chars = project.characters;
+
+    FIELDS.forEach(field => {
+      const row = document.createElement('div');
+      row.className = 'batch-field-row';
+
+      let optsHTML;
+      if (field.dynamic) {
+        // Perspective: placeholder + clear + characters
+        optsHTML = `<option value="" disabled selected>— select value —</option>
+          <option value="__clear__">None (clear)</option>` +
+          chars.map(c => `<option value="${c.id}">${App.Utils.esc(c.name)}</option>`).join('');
+      } else {
+        optsHTML = `<option value="" disabled selected>— select value —</option>` +
+          field.options.map(o => `<option value="${o}">${o}</option>`).join('');
+      }
+
+      row.innerHTML = `
+        <label class="batch-field-label">
+          <input type="checkbox" class="batch-field-check" data-field-key="${field.key}">
+          ${App.Utils.esc(field.label)}
+        </label>
+        <select class="batch-field-val" data-field-key="${field.key}" disabled>
+          ${optsHTML}
+        </select>`;
+
+      row.querySelector('.batch-field-check').addEventListener('change', e => {
+        row.querySelector('.batch-field-val').disabled = !e.target.checked;
+      });
+
+      fieldRows.appendChild(row);
+    });
+
+    _updatePreview();
+    _dialog.showModal();
+  }
+
+  function _updatePreview() {
+    const selectedDirs = _getSelectedDirs();
+    const project = App.State.get('project');
+    const count = project ? project.scenes.filter(s => selectedDirs.has(_getSceneDir(s))).length : 0;
+    document.getElementById('batch-preview-text').textContent =
+      `${count} scene${count !== 1 ? 's' : ''} will be affected`;
+  }
+
+  function _getSelectedDirs() {
+    return new Set([...document.querySelectorAll('.batch-dir-check:checked')].map(cb => cb.dataset.dir));
+  }
+
+  function _apply() {
+    const selectedDirs = _getSelectedDirs();
+    if (selectedDirs.size === 0) { alert('Select at least one folder.'); return; }
+
+    // Collect enabled field updates, skip any still on the placeholder (value === '')
+    const updates = [];
+    document.querySelectorAll('.batch-field-check:checked').forEach(cb => {
+      const key = cb.dataset.fieldKey;
+      const sel = document.querySelector(`.batch-field-val[data-field-key="${key}"]`);
+      if (!sel || sel.value === '') return; // user left the placeholder — skip
+      // Resolve the '__clear__' sentinel to an empty string
+      const value = sel.value === '__clear__' ? '' : sel.value;
+      updates.push({ key, value });
+    });
+
+    if (updates.length === 0) { alert('No fields have a value selected to apply.'); return; }
+
+    const project = App.State.get('project');
+    const affected = project.scenes.filter(s => selectedDirs.has(_getSceneDir(s))).length;
+    if (!confirm(`Apply ${updates.length} field change${updates.length > 1 ? 's' : ''} to ${affected} scene${affected > 1 ? 's' : ''}?`)) return;
+
+    App.State.mutateProject(project => {
+      project.scenes.forEach(scene => {
+        if (!selectedDirs.has(_getSceneDir(scene))) return;
+        updates.forEach(({ key, value }) => App.Utils.setNested(scene, key, value));
+      });
+    });
+
+    _dialog.close();
+  }
+
+  document.getElementById('btn-batch-apply').addEventListener('click', _apply);
+
+  return { open };
+})();
+
+// ═══════════════════════════════════════════════════════
+// STATISTICS
+// ═══════════════════════════════════════════════════════
+App.Stats = (function() {
+  let _initialized = false;
+
+  function init() {
+    if (_initialized) return;
+    _initialized = true;
+    App.State.subscribe('projectChange', update);
+  }
+
+  function update() {
+    const scenes = App.State.get('project')?.scenes || [];
+    const included = scenes.filter(s => s.status === 'included');
+    const excluded = scenes.filter(s => s.status === 'excluded');
+    const maybe    = scenes.filter(s => s.status === 'maybe');
+    const untagged = scenes.filter(s => !s.status || s.status === 'untagged');
+    const withNarrative = included.filter(s => s.narrative?.trim().length > 0);
+    const withChars     = included.filter(s => s.characters?.length > 0);
+    const nPct = included.length ? Math.round(withNarrative.length / included.length * 100) : 0;
+    const cPct = included.length ? Math.round(withChars.length / included.length * 100) : 0;
+    const chars = App.State.get('project')?.characters?.length ?? 0;
+
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('stat-included', included.length);
+    set('stat-maybe', maybe.length);
+    set('stat-untagged', untagged.length);
+    set('stat-total-display', `${scenes.length} scenes total`);
+    set('stats-total', scenes.length);
+    set('stats-included', included.length);
+    set('stats-maybe', maybe.length);
+    set('stats-excluded', excluded.length);
+    set('stats-untagged', untagged.length);
+    set('stats-narrative-pct', nPct + '%');
+    set('stats-char-pct', cPct + '%');
+    set('stats-characters', chars);
+  }
+
+  return { init, update };
+})();
+
+// ═══════════════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════════════
+App.Export = (function() {
+  function _download(filename, content, mime) {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function _slug() {
+    return App.Utils.sanitizeFilename(App.State.get('project')?.project.title || 'project');
+  }
+
+  function exportFullJSON() {
+    const p = App.State.get('project');
+    _download(`${_slug()}_full.json`, JSON.stringify(p, null, 2), 'application/json');
+    document.getElementById('export-dialog').close();
+  }
+
+  function exportFilteredJSON() {
+    const p = App.State.get('project');
+    const out = { ...p, scenes: p.scenes.filter(s => s.status === 'included') };
+    _download(`${_slug()}_included.json`, JSON.stringify(out, null, 2), 'application/json');
+    document.getElementById('export-dialog').close();
+  }
+
+  function exportLLMPackage() {
+    const p = App.State.get('project');
+    const included = p.scenes.filter(s => s.status === 'included');
+    const chars = p.characters;
+
+    let md = `# ${p.project.title} — Storyboard Brief\n\n`;
+    md += `**Generated:** ${new Date().toISOString()}\n`;
+    md += `**Included scenes:** ${included.length}  |  **Characters:** ${chars.length}\n\n---\n\n`;
+
+    md += `## Characters\n\n`;
+    if (!chars.length) { md += '_No characters defined._\n\n'; }
+    chars.forEach(c => {
+      md += `### ${c.name}\n- **Role:** ${c.role}${c.playable ? ' (playable)' : ''}\n`;
+      if (c.description) md += `- **Description:** ${c.description}\n`;
+      if (c.tags?.length) md += `- **Tags:** ${c.tags.join(', ')}\n`;
+      md += '\n';
+    });
+
+    md += `---\n\n## Scene Sequence\n\n`;
+    included.forEach((scene, i) => {
+      const charNames = (scene.characters || [])
+        .map(e => chars.find(c => c.id === e.characterId)?.name || 'Unknown').join(', ');
+      const pov = chars.find(c => c.id === scene.perspective);
+      md += `### Scene ${i + 1}: \`${scene.asset.path}\`\n\n`;
+      md += `| Field | Value |\n|---|---|\n`;
+      md += `| Status | ${scene.status || 'untagged'} |\n`;
+      if (scene.contentRating) md += `| Rating | ${scene.contentRating} |\n`;
+      if (scene.shot?.type)       md += `| Shot | ${scene.shot.type} |\n`;
+      if (scene.shot?.transition) md += `| Transition | ${scene.shot.transition} |\n`;
+      if (scene.mood)             md += `| Mood | ${scene.mood} |\n`;
+      if (charNames)              md += `| Characters | ${charNames} |\n`;
+      if (pov)                    md += `| POV | ${pov.name} |\n`;
+      if (scene.tags?.length)     md += `| Tags | ${scene.tags.join(', ')} |\n`;
+      if (scene.narrative) md += `\n**Narrative:**\n> ${scene.narrative.replace(/\n/g, '\n> ')}\n`;
+      if (scene.video?.sequenceId) {
+        md += `\n**Video Sequence:** \`${scene.video.sequenceId}\` (index ${scene.video.indexInSequence})\n`;
+        if (scene.video.motionPrompt) md += `**Motion Prompt:** ${scene.video.motionPrompt}\n`;
+      }
+      md += '\n---\n\n';
+    });
+
+    md += `## Raw JSON\n\n\`\`\`json\n`;
+    md += JSON.stringify({ ...p, scenes: included }, null, 2);
+    md += `\n\`\`\`\n`;
+
+    _download(`${_slug()}_llm_package.md`, md, 'text/markdown');
+    document.getElementById('export-dialog').close();
+  }
+
+  return { exportFullJSON, exportFilteredJSON, exportLLMPackage };
+})();
+
+// ═══════════════════════════════════════════════════════
+// HASHER
+// ═══════════════════════════════════════════════════════
+App.Hasher = (function() {
+  async function hashAllInBackground() {
+    const project = App.State.get('project');
+    if (!project) return;
+    const fc = App.State.get('fileHandleCache');
+    let count = 0;
+    for (const scene of project.scenes) {
+      if (scene.asset.hash) continue;
+      const handle = fc.get(scene.asset.path);  // keyed by path
+      if (!handle) continue;
+      try {
+        const file = await handle.getFile();
+        const buf  = await file.arrayBuffer();
+        const hash = await crypto.subtle.digest('SHA-256', buf);
+        scene.asset.hash = Array.from(new Uint8Array(hash))
+          .map(b => b.toString(16).padStart(2, '0')).join('');
+        count++;
+        App.Editor.refreshHash(scene.id);
+      } catch { /* skip missing/unreadable files */ }
+      if (count % 10 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+    if (count > 0) App.FS.scheduleSave();
+  }
+
+  return { hashAllInBackground };
+})();
+
+// ═══════════════════════════════════════════════════════
+// START SCREEN
+// ═══════════════════════════════════════════════════════
+App.StartScreen = (function() {
+  function show() {
+    document.getElementById('start-screen').style.display = 'flex';
+    document.getElementById('app-shell').classList.remove('visible');
+    _renderRecent();
+  }
+
+  function hide() {
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('app-shell').classList.add('visible');
+  }
+
+  function _renderRecent() {
+    const recent = JSON.parse(localStorage.getItem('storyboard_recent') || '[]');
+    const container = document.getElementById('recent-list');
+    const items = document.getElementById('recent-items');
+    if (!recent.length) { container.style.display = 'none'; return; }
+    container.style.display = 'block';
+    items.innerHTML = '';
+    recent.slice(0, 5).forEach(r => {
+      const div = document.createElement('div');
+      div.className = 'recent-item';
+      const date = new Date(r.lastOpened).toLocaleDateString();
+      div.innerHTML = `
+        <div>
+          <div class="recent-title">${App.Utils.esc(r.title)}</div>
+          <div class="recent-meta">${App.Utils.esc(r.folderName)} · ${date}</div>
+        </div>
+        <button class="reopen-btn">Reopen</button>`;
+      div.querySelector('.reopen-btn').addEventListener('click', e => { e.stopPropagation(); _reopenFromIDB(); });
+      div.addEventListener('click', _reopenFromIDB);
+      items.appendChild(div);
+    });
+  }
+
+  async function _reopenFromIDB() {
+    const result = await App.FS.tryRestoreLastProject();
+    if (!result) { alert('Could not restore the project — please use Open Folder.'); return; }
+    if (result.needsPermission) {
+      try {
+        const perm = await result.handle.requestPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') { alert('Permission denied.'); return; }
+        App.State.set('dirHandle', result.handle);
+        const jh = await App.IDB.get('lastJsonHandle');
+        if (jh) App.State.set('jsonFileHandle', jh);
+      } catch { alert('Could not request permission.'); return; }
+    }
+    const dirHandle = App.State.get('dirHandle');
+    const existing = await App.FS.loadProject(dirHandle);
+    if (!existing) { alert('Could not find storyboard.json in that folder.'); return; }
+    App.State.set('project', existing);
+    await _enterProject(dirHandle);
+  }
+
+  async function _newProject() {
+    let dirHandle;
+    try { dirHandle = await App.FS.openFolder(); } catch { return; }
+    const title = prompt('Project title:', 'My Visual Novel');
+    if (!title) return;
+    App.State.set('project', buildEmptyProject(title));
+    await App.FS.createProjectFile(dirHandle);
+    await App.FS.saveNow();
+    await _enterProject(dirHandle);
+  }
+
+  async function _openFolder() {
+    let dirHandle;
+    try { dirHandle = await App.FS.openFolder(); } catch { return; }
+    const existing = await App.FS.loadProject(dirHandle);
+    if (existing) {
+      App.State.set('project', existing);
+      await _enterProject(dirHandle);
+    } else {
+      if (confirm('No project found in this folder. Create a new one here?')) {
+        const title = prompt('Project title:', 'My Visual Novel');
+        if (!title) return;
+        App.State.set('project', buildEmptyProject(title));
+        await App.FS.createProjectFile(dirHandle);
+        await App.FS.saveNow();
+        await _enterProject(dirHandle);
+      }
+    }
+  }
+
+  async function _enterProject(dirHandle) {
+    const imageFiles = await App.FS.enumerateImages(dirHandle);
+    reconcileScenes(imageFiles);
+    App.State.initIndex();
+    await App.FS.rememberProject(dirHandle, App.State.get('project').project.title);
+
+    document.getElementById('project-title').value = App.State.get('project').project.title;
+
+    App.Grid.init();
+    App.LazyLoader.init();
+    App.Editor.init();
+    App.Stats.init();
+    App.Filters.init();
+    App.Stats.update();
+    App.CharMgr.updateFilterDropdown();
+    App.Grid.render();
+    hide();
+
+    App.Hasher.hashAllInBackground();
+  }
+
+  document.getElementById('btn-new-project').addEventListener('click', _newProject);
+  document.getElementById('btn-open-folder').addEventListener('click', _openFolder);
+
+  return { show, hide, enterProject: _enterProject };
+})();
+
+// ═══════════════════════════════════════════════════════
+// HEADER WIRING
+// ═══════════════════════════════════════════════════════
+document.getElementById('btn-chars').addEventListener('click', () => App.CharMgr.open());
+document.getElementById('btn-stats').addEventListener('click', () => document.getElementById('stats-dialog').showModal());
+document.getElementById('btn-export').addEventListener('click', () => document.getElementById('export-dialog').showModal());
+document.getElementById('btn-batch').addEventListener('click', () => App.BatchEdit.open());
+
+document.getElementById('project-title').addEventListener('change', e => {
+  App.State.mutateProject(project => { project.project.title = e.target.value; });
+});
+
+document.getElementById('btn-home').addEventListener('click', () => {
+  if (!confirm('Return to the project switcher? Unsaved changes will be saved first.')) return;
+  App.FS.saveNow().then(() => {
+    App.LazyLoader.teardown();
+    App.Editor.close();
+    App.State.set('project', null);
+    App.State.set('dirHandle', null);
+    App.State.set('jsonFileHandle', null);
+    App.State.set('selectedSceneId', null);
+    App.State.set('selectMode', false);
+    App.State.get('fileHandleCache').clear();
+    App.State.get('selectedCards').clear();
+    document.getElementById('toggle-select-mode').checked = false;
+    document.getElementById('image-grid-inner').innerHTML = '<div id="empty-state">Open a project to begin.</div>';
+    App.StartScreen.show();
+  });
+});
+
+// ═══════════════════════════════════════════════════════
+// BOOTSTRAP
+// ═══════════════════════════════════════════════════════
+(async function bootstrap() {
+  // Bridge: 'filter' key changes re-emit as 'filterChange' which Grid subscribes to
+  App.State.subscribe('filter', filter => App.State.set('filterChange', filter));
+
+  // Attempt to restore the last session without requiring a user gesture
+  const restored = await App.FS.tryRestoreLastProject();
+  if (restored && !restored.needsPermission) {
+    const dirHandle = App.State.get('dirHandle');
+    try {
+      const existing = await App.FS.loadProject(dirHandle);
+      if (existing) {
+        App.State.set('project', existing);
+        await App.StartScreen.enterProject(dirHandle);
+        return;
+      }
+    } catch (e) { console.warn('Auto-restore failed:', e); }
+  }
+
+  App.StartScreen.show();
+})();
+
+window.addEventListener('beforeunload', () => {
+  if (App.State.get('dirty')) App.FS.saveNow();
+});
+</script>
+</body>
+</html>

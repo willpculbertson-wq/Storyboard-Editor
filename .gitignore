@@ -1,0 +1,10 @@
+# User project data — storyboard.json files live in the user's image folders, not here
+storyboard.json
+
+# Local project directories (user image data, not part of the tool source)
+Projects/
+
+# OS artifacts
+Thumbs.db
+.DS_Store
+desktop.ini
