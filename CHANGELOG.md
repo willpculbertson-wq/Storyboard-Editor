@@ -26,6 +26,16 @@
 - When collapsed, shows "N in view" — the count of scenes currently passing the active filter — rather than total scenes
 - `App.Grid.render()` now stores filtered scene count in state; `App.Stats` subscribes to both `projectChange` and `filterChange` so the "in view" count stays current
 
+## 2026-05-10 — Expanded character schema with nine new optional fields
+
+- Added `alias`, `color`, `age`, `occupation`, `orientation`, `kink`, `physicalAppearance`, `relationships`, and `notes` to the character data model
+- Removed enum validation on `role`, `orientation`, and `kink` — all three now accept any free-form string; `role` input in the character manager changed from a `<select>` to a plain text field
+- Batch import parser reads and stores all new fields when present; fields absent from the import payload are omitted (not defaulted) — no errors thrown for missing optional fields; `id` continues to be auto-generated and is never read from import payload
+- Character manager dialog widened to 700 px; each character row now renders all new fields as editable inputs (single-line for alias, color, occupation, orientation, kink; number input for age; textareas for physicalAppearance, relationships, notes)
+- Age field coerced to integer (null when cleared) in both the `change` and `input` event handlers via a shared `_coerceField()` helper
+- LLM package export markdown now conditionally renders each new field — fields that are null or absent are hidden rather than emitted as blank lines
+- Full JSON exports unchanged — `JSON.stringify` serializes the entire project graph so all populated fields are included automatically
+
 ## 2026-05-10 — Character batch import from LLM
 
 - Added "Import from LLM…" button to the Characters dialog footer — visible only from that dialog
