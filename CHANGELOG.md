@@ -26,6 +26,16 @@
 - When collapsed, shows "N in view" — the count of scenes currently passing the active filter — rather than total scenes
 - `App.Grid.render()` now stores filtered scene count in state; `App.Stats` subscribes to both `projectChange` and `filterChange` so the "in view" count stays current
 
+## 2026-05-10 — Checkbox filters, focus layout, preview visibility, resizable divider
+
+- Status, Content Rating, and Character filters converted from single-select dropdowns to multi-checkbox groups; filter state uses Sets (empty Set = show all)
+- New "Apply Filters" button must be pressed before the three checkbox filters take effect; button turns accent-colored when pending changes are queued; `showExcluded` and `taggedOnly` checkboxes remain instant-apply
+- `App.Filters.updateCharGroup()` replaces the old `_updateFilterDropdown` select-rebuild; character checkboxes are populated on project load and after any character add/delete/import, and checked selections are preserved across rebuilds
+- Grid and focus card status borders increased from 2px to 3px for better contrast (especially yellow "maybe" on light thumbnails)
+- Focus view cells switch from fixed pixel widths to proportional flex ratios (6:2:1 = 50%/16.6%/8.3%); images use `object-fit:contain` so the full image is always visible without cropping
+- Editor preview pane (left side showing the image) is now hidden in Grid and Focus views via a `detail-mode` CSS class; it only appears when the editor is opened from the Detail List view
+- Draggable resize handle added between the preview pane and the fields panel when in detail-mode; minimum preview width enforced at 112px (2× the 56px list thumbnail)
+
 ## 2026-05-10 — Expanded character schema with nine new optional fields
 
 - Added `alias`, `color`, `age`, `occupation`, `orientation`, `kink`, `physicalAppearance`, `relationships`, and `notes` to the character data model
