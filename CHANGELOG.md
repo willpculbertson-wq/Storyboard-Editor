@@ -26,6 +26,12 @@
 - When collapsed, shows "N in view" — the count of scenes currently passing the active filter — rather than total scenes
 - `App.Grid.render()` now stores filtered scene count in state; `App.Stats` subscribes to both `projectChange` and `filterChange` so the "in view" count stays current
 
+## 2026-05-11 — Alias display, collapsible filters, focus border height
+
+- Characters now displayed by alias everywhere in the UI — filter character checkboxes, perspective dropdown, add-character select, characters-in-scene list, and LLM export character names and POV field — falling back to name when no alias is set
+- Filter section headers (Status, Content Rating, Character Present) are clickable toggles that collapse/expand their checkbox groups; the arrow indicator rotates when collapsed; all three start expanded
+- Focus view cells given `aspect-ratio:16/9` and the strip container switched to `align-items:center`; cells now sit at image height rather than stretching to the full panel height, so status border outlines only the image frame
+
 ## 2026-05-10 — Checkbox filters, focus layout, preview visibility, resizable divider
 
 - Status, Content Rating, and Character filters converted from single-select dropdowns to multi-checkbox groups; filter state uses Sets (empty Set = show all)
