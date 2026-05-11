@@ -94,7 +94,12 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .sidebar-section{display:flex;flex-direction:column;gap:6px}
 .filter-row{display:flex;flex-direction:column;gap:3px}
 .filter-row label{font-size:11px}
-.filter-check-group{display:flex;flex-direction:column;gap:2px}
+.filter-row-header{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;padding:1px 0}
+.filter-row-header span:first-child{font-size:11px}
+.filter-arrow{font-size:9px;color:var(--text-2);display:inline-block;transition:transform .15s}
+.filter-row-header.collapsed .filter-arrow{transform:rotate(-90deg)}
+.filter-check-group{display:flex;flex-direction:column;gap:2px;padding-top:3px}
+.filter-check-group.collapsed{display:none}
 .filter-check-label{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;padding:1px 0;color:var(--text-1)}
 .filter-check-label input[type=checkbox]{width:auto}
 #btn-apply-filters{width:100%;margin-top:2px}
@@ -326,8 +331,8 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 
 /* ── FOCUS VIEW ─────────────────────────────────────────── */
 #image-grid.focus-mode{overflow:hidden!important;padding:0!important}
-#image-grid-inner.focus-view{display:flex;align-items:stretch;gap:6px;padding:12px;height:100%;box-sizing:border-box}
-.focus-cell{position:relative;background:var(--bg-0);border-radius:var(--radius);overflow:hidden;cursor:pointer;border:3px solid transparent;min-width:0;transition:border-color .1s,opacity .15s}
+#image-grid-inner.focus-view{display:flex;align-items:center;gap:6px;padding:12px;height:100%;box-sizing:border-box}
+.focus-cell{position:relative;background:var(--bg-0);border-radius:var(--radius);overflow:hidden;cursor:pointer;border:3px solid transparent;min-width:0;aspect-ratio:16/9;transition:border-color .1s,opacity .15s}
 .focus-cell.focus-current{flex:6 0 0;cursor:default}
 .focus-cell.focus-near{flex:2 0 0;opacity:.75}
 .focus-cell.focus-far{flex:1 0 0;opacity:.45}
@@ -417,7 +422,9 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
     <div class="sidebar-section">
       <h4>Filters</h4>
       <div class="filter-row">
-        <label>Status</label>
+        <div class="filter-row-header" data-target="filter-status-group">
+          <span>Status</span><span class="filter-arrow">▼</span>
+        </div>
         <div class="filter-check-group" id="filter-status-group">
           <label class="filter-check-label"><input type="checkbox" value="included"> Included</label>
           <label class="filter-check-label"><input type="checkbox" value="maybe"> Maybe</label>
@@ -426,7 +433,9 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
         </div>
       </div>
       <div class="filter-row">
-        <label>Content Rating</label>
+        <div class="filter-row-header" data-target="filter-rating-group">
+          <span>Content Rating</span><span class="filter-arrow">▼</span>
+        </div>
         <div class="filter-check-group" id="filter-rating-group">
           <label class="filter-check-label"><input type="checkbox" value="explicit"> Explicit</label>
           <label class="filter-check-label"><input type="checkbox" value="suggestive"> Suggestive</label>
@@ -435,7 +444,9 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
         </div>
       </div>
       <div class="filter-row">
-        <label>Character Present</label>
+        <div class="filter-row-header" data-target="filter-character-group">
+          <span>Character Present</span><span class="filter-arrow">▼</span>
+        </div>
         <div class="filter-check-group" id="filter-character-group"></div>
       </div>
       <button id="btn-apply-filters">Apply Filters</button>
@@ -1606,7 +1617,7 @@ App.Editor = (function() {
     perspEl.innerHTML = '<option value="">— none —</option>';
     for (const c of project.characters) {
       const opt = document.createElement('option');
-      opt.value = c.id; opt.textContent = c.name;
+      opt.value = c.id; opt.textContent = c.alias || c.name;
       if (c.id === scene.perspective) opt.selected = true;
       perspEl.appendChild(opt);
     }
@@ -1627,7 +1638,7 @@ App.Editor = (function() {
     addSel.innerHTML = '<option value="">— add character —</option>';
     for (const c of project.characters) {
       const opt = document.createElement('option');
-      opt.value = c.id; opt.textContent = c.name; addSel.appendChild(opt);
+      opt.value = c.id; opt.textContent = c.alias || c.name; addSel.appendChild(opt);
     }
 
     _populateCharacters(scene);
@@ -1644,7 +1655,7 @@ App.Editor = (function() {
       const row = document.createElement('div');
       row.className = 'char-entry';
       row.innerHTML = `
-        <span class="char-name">${App.Utils.esc(char?.name || 'Unknown')}</span>
+        <span class="char-name">${App.Utils.esc(char ? (char.alias || char.name) : 'Unknown')}</span>
         <input type="text" placeholder="pose" value="${App.Utils.esc(entry.pose || '')}" data-char-idx="${idx}" data-char-field="pose">
         <input type="text" placeholder="expression" value="${App.Utils.esc(entry.expression || '')}" data-char-idx="${idx}" data-char-field="expression">
         <button data-remove-char="${idx}">×</button>`;
@@ -2054,6 +2065,16 @@ App.Filters = (function() {
     if (_initialized) return;
     _initialized = true;
 
+    // Collapsible filter section headers
+    document.querySelector('.sidebar-section')?.addEventListener('click', e => {
+      const header = e.target.closest('.filter-row-header');
+      if (!header) return;
+      const group = document.getElementById(header.dataset.target);
+      if (!group) return;
+      group.classList.toggle('collapsed');
+      header.classList.toggle('collapsed');
+    });
+
     // Checkbox groups — mark Apply button pending on any change, don't filter yet
     ['filter-status-group','filter-rating-group','filter-character-group'].forEach(id =>
       document.getElementById(id)?.addEventListener('change', _markPending));
@@ -2105,7 +2126,7 @@ App.Filters = (function() {
       cb.value  = c.id;
       cb.checked = checked.has(c.id);
       lbl.appendChild(cb);
-      lbl.append(' ' + c.name);
+      lbl.append(' ' + (c.alias || c.name));
       group.appendChild(lbl);
     });
     if (checked.size > 0) _markPending();
@@ -2395,7 +2416,7 @@ App.Export = (function() {
     md += `---\n\n## Scene Sequence\n\n`;
     included.forEach((scene, i) => {
       const charNames = (scene.characters || [])
-        .map(e => chars.find(c => c.id === e.characterId)?.name || 'Unknown').join(', ');
+        .map(e => { const ch = chars.find(c => c.id === e.characterId); return ch ? (ch.alias || ch.name) : 'Unknown'; }).join(', ');
       const pov = chars.find(c => c.id === scene.perspective);
       md += `### Scene ${i + 1}: \`${scene.asset.path}\`\n\n`;
       md += `| Field | Value |\n|---|---|\n`;
@@ -2405,7 +2426,7 @@ App.Export = (function() {
       if (scene.shot?.transition) md += `| Transition | ${scene.shot.transition} |\n`;
       if (scene.mood)             md += `| Mood | ${scene.mood} |\n`;
       if (charNames)              md += `| Characters | ${charNames} |\n`;
-      if (pov)                    md += `| POV | ${pov.name} |\n`;
+      if (pov)                    md += `| POV | ${pov.alias || pov.name} |\n`;
       if (scene.tags?.length)     md += `| Tags | ${scene.tags.join(', ')} |\n`;
       if (scene.narrative) md += `\n**Narrative:**\n> ${scene.narrative.replace(/\n/g, '\n> ')}\n`;
       if (scene.video?.sequenceId) {
