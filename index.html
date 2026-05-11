@@ -94,6 +94,11 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .sidebar-section{display:flex;flex-direction:column;gap:6px}
 .filter-row{display:flex;flex-direction:column;gap:3px}
 .filter-row label{font-size:11px}
+.filter-check-group{display:flex;flex-direction:column;gap:2px}
+.filter-check-label{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer;padding:1px 0;color:var(--text-1)}
+.filter-check-label input[type=checkbox]{width:auto}
+#btn-apply-filters{width:100%;margin-top:2px}
+#btn-apply-filters.pending{background:var(--accent);color:#fff;border-color:var(--accent)}
 .toggle-row{display:flex;align-items:center;gap:8px;font-size:12px}
 .toggle-row input[type=checkbox]{width:auto}
 
@@ -113,7 +118,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 }
 .scene-card{
   position:relative;aspect-ratio:16/9;background:var(--bg-2);border-radius:var(--radius);
-  overflow:hidden;cursor:pointer;border:2px solid transparent;
+  overflow:hidden;cursor:pointer;border:3px solid transparent;
   transition:border-color .1s,opacity .1s;user-select:none;
 }
 .scene-card img{width:100%;height:100%;object-fit:cover;display:block}
@@ -154,9 +159,16 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   padding:8px;gap:4px;border-right:1px solid var(--border);
 }
+#scene-editor:not(.detail-mode) #editor-preview{display:none}
 #editor-preview img{max-width:100%;max-height:280px;object-fit:contain;border-radius:2px}
 #ed-path{font-size:10px;color:var(--text-2);word-break:break-all;text-align:center;padding:0 4px}
 #ed-hash{font-size:9px;color:var(--text-2);font-family:monospace;text-align:center;word-break:break-all;padding:0 4px}
+#editor-resize-handle{
+  width:5px;flex:0 0 5px;cursor:col-resize;
+  background:var(--border);display:none;transition:background .15s;
+}
+#editor-resize-handle:hover{background:var(--accent)}
+#scene-editor.detail-mode #editor-resize-handle{display:block}
 #editor-fields{
   flex:1;overflow-y:auto;padding:10px;
   display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-content:start;
@@ -315,21 +327,22 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 /* ── FOCUS VIEW ─────────────────────────────────────────── */
 #image-grid.focus-mode{overflow:hidden!important;padding:0!important}
 #image-grid-inner.focus-view{display:flex;align-items:stretch;gap:6px;padding:12px;height:100%;box-sizing:border-box}
-.focus-cell{position:relative;background:var(--bg-2);border-radius:var(--radius);overflow:hidden;cursor:pointer;border:2px solid transparent;flex-shrink:0;transition:border-color .1s,opacity .15s}
-.focus-cell.focus-current{flex:1;cursor:default}
-.focus-cell.focus-near{width:150px;opacity:.75}
-.focus-cell.focus-far{width:80px;opacity:.45}
+.focus-cell{position:relative;background:var(--bg-0);border-radius:var(--radius);overflow:hidden;cursor:pointer;border:3px solid transparent;min-width:0;transition:border-color .1s,opacity .15s}
+.focus-cell.focus-current{flex:6 0 0;cursor:default}
+.focus-cell.focus-near{flex:2 0 0;opacity:.75}
+.focus-cell.focus-far{flex:1 0 0;opacity:.45}
 .focus-cell[data-status="included"]{border-color:var(--green)}
 .focus-cell[data-status="excluded"]{border-color:var(--red)}
 .focus-cell[data-status="maybe"]{border-color:var(--yellow)}
 .focus-cell[data-status="untagged"]{border-color:var(--grey)}
-.focus-cell img{width:100%;height:100%;object-fit:cover;display:block}
+.focus-cell img{width:100%;height:100%;object-fit:contain;display:block}
 .focus-label{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.75));color:#fff;font-size:10px;padding:8px 4px 3px;text-align:center;word-break:break-all;opacity:0;transition:opacity .15s}
 .focus-cell:hover .focus-label{opacity:1}
 .focus-cell.focus-current .focus-label{opacity:1}
-.focus-placeholder{flex-shrink:0;background:var(--bg-1);border-radius:var(--radius);opacity:.3}
-.focus-placeholder.focus-near{width:150px}
-.focus-placeholder.focus-far{width:80px}
+.focus-placeholder{background:var(--bg-1);border-radius:var(--radius);opacity:.3;min-width:0}
+.focus-placeholder.focus-current{flex:6 0 0}
+.focus-placeholder.focus-near{flex:2 0 0}
+.focus-placeholder.focus-far{flex:1 0 0}
 
 /* ── LIST VIEW ──────────────────────────────────────────── */
 #image-grid-inner.list-view{display:flex;flex-direction:column;padding:0}
@@ -405,30 +418,27 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       <h4>Filters</h4>
       <div class="filter-row">
         <label>Status</label>
-        <select id="filter-status" data-filter-key="status">
-          <option value="all">All</option>
-          <option value="included">Included</option>
-          <option value="maybe">Maybe</option>
-          <option value="excluded">Excluded</option>
-          <option value="untagged">Untagged</option>
-        </select>
+        <div class="filter-check-group" id="filter-status-group">
+          <label class="filter-check-label"><input type="checkbox" value="included"> Included</label>
+          <label class="filter-check-label"><input type="checkbox" value="maybe"> Maybe</label>
+          <label class="filter-check-label"><input type="checkbox" value="excluded"> Excluded</label>
+          <label class="filter-check-label"><input type="checkbox" value="untagged"> Untagged</label>
+        </div>
       </div>
       <div class="filter-row">
         <label>Content Rating</label>
-        <select id="filter-rating" data-filter-key="contentRating">
-          <option value="all">All</option>
-          <option value="explicit">Explicit</option>
-          <option value="suggestive">Suggestive</option>
-          <option value="tasteful">Tasteful</option>
-          <option value="neutral">Neutral</option>
-        </select>
+        <div class="filter-check-group" id="filter-rating-group">
+          <label class="filter-check-label"><input type="checkbox" value="explicit"> Explicit</label>
+          <label class="filter-check-label"><input type="checkbox" value="suggestive"> Suggestive</label>
+          <label class="filter-check-label"><input type="checkbox" value="tasteful"> Tasteful</label>
+          <label class="filter-check-label"><input type="checkbox" value="neutral"> Neutral</label>
+        </div>
       </div>
       <div class="filter-row">
         <label>Character Present</label>
-        <select id="filter-character" data-filter-key="characterId">
-          <option value="all">Any / None</option>
-        </select>
+        <div class="filter-check-group" id="filter-character-group"></div>
       </div>
+      <button id="btn-apply-filters">Apply Filters</button>
       <div class="toggle-row">
         <input type="checkbox" id="filter-show-excluded" data-filter-key="showExcluded">
         <label for="filter-show-excluded" style="margin:0;font-size:12px">Show excluded</label>
@@ -513,6 +523,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
           <div id="ed-path">—</div>
           <div id="ed-hash">—</div>
         </div>
+        <div id="editor-resize-handle"></div>
         <div id="editor-fields">
           <div id="editor-header">
             <h3>Scene Editor</h3>
@@ -858,7 +869,7 @@ App.State = (function() {
     dirHandle: null,
     jsonFileHandle: null,
     selectedSceneId: null,
-    filter: { status: 'all', contentRating: 'all', characterId: 'all', showExcluded: false, taggedOnly: false },
+    filter: { statuses: new Set(), contentRatings: new Set(), characterIds: new Set(), showExcluded: false, taggedOnly: false },
     dirty: false,
     thumbnailCache: new Map(),  // keyed by asset.path
     fileHandleCache: new Map(), // keyed by asset.path
@@ -1173,15 +1184,10 @@ App.Grid = (function() {
   function _applyFilter(scenes, filter) {
     return scenes.filter(scene => {
       const status = scene.status || 'untagged';
-      if (!filter.showExcluded && status === 'excluded') return false;
-      if (filter.status !== 'all') {
-        if (filter.status === 'untagged' && status !== 'untagged') return false;
-        if (filter.status !== 'untagged' && status !== filter.status) return false;
-      }
-      if (filter.contentRating !== 'all' && scene.contentRating !== filter.contentRating) return false;
-      if (filter.characterId !== 'all') {
-        if (!(scene.characters || []).some(c => c.characterId === filter.characterId)) return false;
-      }
+      if (status === 'excluded' && !filter.showExcluded && !filter.statuses.has('excluded')) return false;
+      if (filter.statuses.size > 0 && !filter.statuses.has(status)) return false;
+      if (filter.contentRatings.size > 0 && !filter.contentRatings.has(scene.contentRating || '')) return false;
+      if (filter.characterIds.size > 0 && !(scene.characters || []).some(c => filter.characterIds.has(c.characterId))) return false;
       if (filter.taggedOnly && (!scene.tags || scene.tags.length === 0)) return false;
       return true;
     });
@@ -1511,6 +1517,37 @@ App.Editor = (function() {
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape' && _currentId && App.State.get('viewMode') !== 'focus') close();
     });
+
+    // Resize handle drag (detail-mode only)
+    (function() {
+      const handle  = document.getElementById('editor-resize-handle');
+      const preview = document.getElementById('editor-preview');
+      const MIN_W   = 112; // 2× list thumbnail width (56px)
+      let dragging  = false, startX = 0, startW = 0;
+
+      handle.addEventListener('mousedown', e => {
+        if (!_panel.classList.contains('detail-mode')) return;
+        dragging = true;
+        startX   = e.clientX;
+        startW   = preview.offsetWidth;
+        document.body.style.cursor     = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        const newW = Math.max(MIN_W, startW + (e.clientX - startX));
+        preview.style.flex = `0 0 ${newW}px`;
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        document.body.style.cursor     = '';
+        document.body.style.userSelect = '';
+      });
+    })();
   }
 
   function open(sceneId) {
@@ -1518,6 +1555,7 @@ App.Editor = (function() {
     App.State.set('selectedSceneId', sceneId);
     const scene = App.State.get('_sceneIndex').get(sceneId);
     if (!scene) return;
+    _panel.classList.toggle('detail-mode', App.State.get('viewMode') === 'list');
     _populate(scene);
     _panel.classList.add('open');
     App.Grid.refreshCard(sceneId);
@@ -1852,16 +1890,7 @@ App.CharMgr = (function() {
   });
 
   function _updateFilterDropdown() {
-    const sel = document.getElementById('filter-character');
-    const chars = App.State.get('project')?.characters || [];
-    const cur = sel.value;
-    sel.innerHTML = '<option value="all">Any / None</option>';
-    chars.forEach(c => {
-      const opt = document.createElement('option');
-      opt.value = c.id; opt.textContent = c.name;
-      if (c.id === cur) opt.selected = true;
-      sel.appendChild(opt);
-    });
+    App.Filters?.updateCharGroup();
   }
 
   return { open, render: _render, updateFilterDropdown: _updateFilterDropdown };
@@ -2024,10 +2053,17 @@ App.Filters = (function() {
   function init() {
     if (_initialized) return;
     _initialized = true;
-    ['filter-status','filter-rating','filter-character'].forEach(id =>
-      document.getElementById(id)?.addEventListener('change', _onFilterChange));
-    document.getElementById('filter-show-excluded')?.addEventListener('change', _onFilterChange);
-    document.getElementById('filter-tagged-only')?.addEventListener('change', _onFilterChange);
+
+    // Checkbox groups — mark Apply button pending on any change, don't filter yet
+    ['filter-status-group','filter-rating-group','filter-character-group'].forEach(id =>
+      document.getElementById(id)?.addEventListener('change', _markPending));
+
+    document.getElementById('btn-apply-filters')?.addEventListener('click', _applyFilters);
+
+    // Instant-apply toggles (unchanged behaviour)
+    document.getElementById('filter-show-excluded')?.addEventListener('change', _onInstant);
+    document.getElementById('filter-tagged-only')?.addEventListener('change', _onInstant);
+
     document.getElementById('toggle-select-mode')?.addEventListener('change', e => {
       App.State.set('selectMode', e.target.checked);
       App.State.get('selectedCards').clear();
@@ -2036,12 +2072,43 @@ App.Filters = (function() {
     });
   }
 
-  function _onFilterChange(e) {
-    const key = e.target.dataset.filterKey;
+  function _markPending() {
+    document.getElementById('btn-apply-filters')?.classList.add('pending');
+  }
+
+  function _applyFilters() {
+    const statuses      = new Set([...document.querySelectorAll('#filter-status-group input:checked')].map(cb => cb.value));
+    const contentRatings = new Set([...document.querySelectorAll('#filter-rating-group input:checked')].map(cb => cb.value));
+    const characterIds  = new Set([...document.querySelectorAll('#filter-character-group input:checked')].map(cb => cb.value));
+    App.State.set('filter', { ...App.State.get('filter'), statuses, contentRatings, characterIds });
+    document.getElementById('btn-apply-filters')?.classList.remove('pending');
+  }
+
+  function _onInstant(e) {
+    const key   = e.target.dataset.filterKey;
     if (!key) return;
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     App.State.set('filter', { ...App.State.get('filter'), [key]: value });
-    // 'filter' key change triggers the bootstrap bridge → emits 'filterChange'
+  }
+
+  function updateCharGroup() {
+    const group = document.getElementById('filter-character-group');
+    if (!group) return;
+    const chars   = App.State.get('project')?.characters || [];
+    const checked = new Set([...group.querySelectorAll('input:checked')].map(cb => cb.value));
+    group.innerHTML = '';
+    chars.forEach(c => {
+      const lbl = document.createElement('label');
+      lbl.className = 'filter-check-label';
+      const cb  = document.createElement('input');
+      cb.type   = 'checkbox';
+      cb.value  = c.id;
+      cb.checked = checked.has(c.id);
+      lbl.appendChild(cb);
+      lbl.append(' ' + c.name);
+      group.appendChild(lbl);
+    });
+    if (checked.size > 0) _markPending();
   }
 
   function bulkSetStatus(status) {
@@ -2066,7 +2133,7 @@ App.Filters = (function() {
     document.getElementById('bulk-count').textContent = `${count} selected`;
   }
 
-  return { init, bulkSetStatus, clearSelection, updateBulkBar };
+  return { init, bulkSetStatus, clearSelection, updateBulkBar, updateCharGroup };
 })();
 
 // ═══════════════════════════════════════════════════════
