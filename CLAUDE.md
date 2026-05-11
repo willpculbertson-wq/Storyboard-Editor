@@ -2,7 +2,7 @@
 
 ## Standing Rules
 
-- **After every session**, update `CHANGELOG.md` with the date, a one-line summary, and bullet points describing what changed.
+- **After every session**, update `CHANGELOG.md` with the date, a one-line summary, and bullet points describing what changed. Then stage all modified files, commit with a message that mirrors the changelog summary, and push to `origin master`. The commit message should be a concise imperative summary; the changelog bullet points serve as the detailed record.
 - **This app is a single self-contained HTML file** — no frameworks, no npm, no build step, no server, no external dependencies. Everything lives in `index.html`.
 - **All images are referenced in place via the File System Access API** — never copy or cache image data to disk. ObjectURLs are created from file handles at render time and revoked when no longer needed.
 - **Before writing any code**, read the existing files to understand current state.
