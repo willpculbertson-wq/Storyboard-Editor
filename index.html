@@ -276,6 +276,21 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .batch-field-row select{flex:1}
 #batch-preview-text{font-size:12px;color:var(--text-1)}
 
+/* ── CHARACTER IMPORT DIALOG ───────────────────────────── */
+#char-import-dialog{width:580px}
+#char-import-schema{margin-top:10px}
+#char-schema-block{
+  background:var(--bg-0);border:1px solid var(--border);border-radius:var(--radius);
+  padding:10px;font-size:11px;font-family:monospace;white-space:pre;
+  overflow:auto;max-height:180px;color:var(--text-0);margin:0;
+}
+.import-schema-header{
+  display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;
+}
+.import-schema-label{font-size:11px;color:var(--text-1);text-transform:uppercase;letter-spacing:.08em}
+#char-import-error{font-size:12px;color:var(--red)}
+#char-import-preview{font-size:12px;color:var(--text-1)}
+
 /* ── SCROLLBAR ─────────────────────────────────────────── */
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:var(--bg-1)}
@@ -522,8 +537,47 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
   </div>
   <div class="dialog-body"><div id="char-list"></div></div>
   <div class="dialog-footer">
-    <button class="primary" id="btn-add-char">+ Add Character</button>
+    <div style="display:flex;gap:8px">
+      <button class="primary" id="btn-add-char">+ Add Character</button>
+      <button id="btn-char-import">Import from LLM…</button>
+    </div>
     <button onclick="document.getElementById('char-manager-dialog').close()">Done</button>
+  </div>
+</dialog>
+
+<!-- ═══════════════════════════════════════════════
+     CHARACTER IMPORT DIALOG
+════════════════════════════════════════════════════ -->
+<dialog id="char-import-dialog">
+  <div class="dialog-header">
+    <h2>Import Characters from LLM</h2>
+    <button onclick="document.getElementById('char-import-dialog').close()">✕</button>
+  </div>
+  <div class="dialog-body">
+    <p style="font-size:12px;color:var(--text-1);margin-bottom:10px">
+      Paste a JSON array of character objects. Characters whose names already exist in the project will be skipped.
+    </p>
+    <textarea id="char-import-input" rows="9"
+      placeholder='[{"name":"Alice","role":"protagonist","playable":true,"description":"…","tags":[]}, …]'
+      style="font-family:monospace;font-size:12px;width:100%"></textarea>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+      <button id="btn-show-schema">Show Schema</button>
+      <span id="char-import-error"></span>
+    </div>
+    <div id="char-import-schema" style="display:none">
+      <div class="import-schema-header">
+        <span class="import-schema-label">Expected JSON format</span>
+        <button id="btn-copy-schema" style="font-size:11px;padding:3px 8px">Copy</button>
+      </div>
+      <pre id="char-schema-block"></pre>
+    </div>
+  </div>
+  <div class="dialog-footer">
+    <span id="char-import-preview"></span>
+    <div style="display:flex;gap:8px">
+      <button onclick="document.getElementById('char-import-dialog').close()">Cancel</button>
+      <button class="primary" id="btn-char-import-apply">Import</button>
+    </div>
   </div>
 </dialog>
 
@@ -1479,7 +1533,134 @@ App.CharMgr = (function() {
     });
   }
 
-  return { open, updateFilterDropdown: _updateFilterDropdown };
+  return { open, render: _render, updateFilterDropdown: _updateFilterDropdown };
+})();
+
+// ═══════════════════════════════════════════════════════
+// CHARACTER IMPORT
+// ═══════════════════════════════════════════════════════
+App.CharImport = (function() {
+  const _dialog = document.getElementById('char-import-dialog');
+
+  const SCHEMA_EXAMPLE = JSON.stringify([
+    {
+      name: 'Alice',
+      role: 'protagonist',
+      playable: true,
+      description: 'The main character and narrator.',
+      tags: ['female', 'student'],
+    },
+    {
+      name: 'Bob',
+      role: 'npc',
+      playable: false,
+      description: "Alice's childhood friend.",
+      tags: ['male'],
+    },
+  ], null, 2);
+
+  const SCHEMA_NOTE =
+    '\n// Fields: name (required), role ("protagonist"|"npc", default "npc"),\n' +
+    '//         playable (boolean, default false), description (string),\n' +
+    '//         tags (string[]). Do not include "id" — it is generated automatically.';
+
+  function open() {
+    document.getElementById('char-import-input').value = '';
+    document.getElementById('char-import-error').textContent = '';
+    document.getElementById('char-import-preview').textContent = '';
+    document.getElementById('char-import-schema').style.display = 'none';
+    document.getElementById('btn-show-schema').textContent = 'Show Schema';
+    _dialog.showModal();
+  }
+
+  document.getElementById('btn-show-schema').addEventListener('click', () => {
+    const block = document.getElementById('char-import-schema');
+    const btn   = document.getElementById('btn-show-schema');
+    const visible = block.style.display !== 'none';
+    if (visible) {
+      block.style.display = 'none';
+      btn.textContent = 'Show Schema';
+    } else {
+      document.getElementById('char-schema-block').textContent = SCHEMA_EXAMPLE + SCHEMA_NOTE;
+      block.style.display = 'block';
+      btn.textContent = 'Hide Schema';
+    }
+  });
+
+  document.getElementById('btn-copy-schema').addEventListener('click', () => {
+    navigator.clipboard.writeText(SCHEMA_EXAMPLE + SCHEMA_NOTE).then(() => {
+      const btn = document.getElementById('btn-copy-schema');
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+    });
+  });
+
+  document.getElementById('char-import-input').addEventListener('input', () => {
+    document.getElementById('char-import-error').textContent = '';
+    _updatePreview();
+  });
+
+  function _parse() {
+    const raw = document.getElementById('char-import-input').value.trim();
+    if (!raw) return { error: 'Paste a JSON array to continue.' };
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch (e) { return { error: `Invalid JSON: ${e.message}` }; }
+    if (!Array.isArray(parsed)) return { error: 'Expected a top-level JSON array [ … ].' };
+    const valid = [], badRows = [];
+    parsed.forEach((item, i) => {
+      if (item && typeof item === 'object' && typeof item.name === 'string' && item.name.trim()) {
+        valid.push(item);
+      } else {
+        badRows.push(i + 1);
+      }
+    });
+    return { valid, badRows };
+  }
+
+  function _updatePreview() {
+    const { valid, badRows, error } = _parse();
+    const el = document.getElementById('char-import-preview');
+    if (error || !valid) { el.textContent = ''; return; }
+    const existing = new Set((App.State.get('project')?.characters || []).map(c => c.name.toLowerCase()));
+    const newCount  = valid.filter(c => !existing.has(c.name.trim().toLowerCase())).length;
+    const skipCount = valid.length - newCount;
+    let msg = `${valid.length} valid`;
+    if (badRows.length) msg += `, ${badRows.length} skipped (missing name — rows: ${badRows.join(', ')})`;
+    if (skipCount) msg += ` · ${skipCount} duplicate name${skipCount !== 1 ? 's' : ''} will be skipped`;
+    el.textContent = msg;
+  }
+
+  document.getElementById('btn-char-import-apply').addEventListener('click', () => {
+    const { valid, error } = _parse();
+    const errEl = document.getElementById('char-import-error');
+    if (error) { errEl.textContent = error; return; }
+    if (!valid.length) { errEl.textContent = 'No valid character objects found.'; return; }
+
+    const existing = new Set((App.State.get('project')?.characters || []).map(c => c.name.toLowerCase()));
+    const toAdd = valid.filter(c => !existing.has(c.name.trim().toLowerCase()));
+    if (!toAdd.length) { errEl.textContent = 'All names already exist in this project.'; return; }
+
+    App.State.mutateProject(project => {
+      toAdd.forEach(c => {
+        project.characters.push({
+          id: crypto.randomUUID(),
+          name: c.name.trim(),
+          role: c.role === 'protagonist' ? 'protagonist' : 'npc',
+          playable: typeof c.playable === 'boolean' ? c.playable : false,
+          description: typeof c.description === 'string' ? c.description : '',
+          tags: Array.isArray(c.tags) ? c.tags.filter(t => typeof t === 'string') : [],
+        });
+      });
+    });
+
+    App.CharMgr.render();
+    App.CharMgr.updateFilterDropdown();
+    _dialog.close();
+  });
+
+  document.getElementById('btn-char-import').addEventListener('click', () => open());
+
+  return { open };
 })();
 
 // ═══════════════════════════════════════════════════════
