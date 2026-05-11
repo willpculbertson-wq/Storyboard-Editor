@@ -8,6 +8,15 @@
 - Built initial `index.html` with full v1 feature set (start screen, image grid, scene editor panel, character manager, filters, bulk actions, export, stats, auto-save, lazy loading, drag-and-drop reorder, background SHA-256 hashing, IndexedDB handle persistence)
 - **Known gap from PRD:** folder scanning is flat (top-level only); recursive subdirectory scanning, correct `asset.path` storage, and subfolder-based initial ordering are not yet implemented — planned for next session
 
+## 2026-05-10 — Prominent scrollbar, stats moved to collapsible sidebar section
+
+- Scrollbar width increased from 6px to 10px with a visible thumb and track; thumb has a 2px inset border for contrast
+- Removed the "Stats" button and `stats-dialog` modal entirely
+- Stats content moved inline to the sidebar "Project" section in a compact key-value layout (total, included, maybe, excluded, untagged, narrative %, character coverage %, characters defined)
+- "Project" section is now collapsible: click the header to toggle; arrow rotates to indicate state
+- When collapsed, shows "N in view" — the count of scenes currently passing the active filter — rather than total scenes
+- `App.Grid.render()` now stores filtered scene count in state; `App.Stats` subscribes to both `projectChange` and `filterChange` so the "in view" count stays current
+
 ## 2026-05-10 — Character batch import from LLM
 
 - Added "Import from LLM…" button to the Characters dialog footer — visible only from that dialog

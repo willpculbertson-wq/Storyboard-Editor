@@ -215,16 +215,30 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .char-name-input{font-size:14px;font-weight:600;flex:1}
 .char-row-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 
-/* ── STATS DIALOG ──────────────────────────────────────── */
-#stats-dialog{width:400px}
-.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:16px}
-.stat-block{background:var(--bg-2);border-radius:var(--radius);padding:12px;text-align:center}
-.stat-block .stat-num{font-size:28px;font-weight:700;line-height:1}
-.stat-block .stat-label{font-size:11px;color:var(--text-1);margin-top:4px}
-.stat-block.green .stat-num{color:var(--green)}
-.stat-block.yellow .stat-num{color:var(--yellow)}
-.stat-block.red .stat-num{color:var(--red)}
-.stat-block.grey .stat-num{color:var(--grey)}
+/* ── SIDEBAR PROJECT STATS ─────────────────────────────── */
+.sidebar-section-toggle{
+  display:flex;align-items:center;justify-content:space-between;
+  cursor:pointer;user-select:none;margin-bottom:0;
+}
+.sidebar-section-toggle h4{margin-bottom:0}
+.sidebar-section-toggle:hover h4{color:var(--text-0)}
+.sidebar-toggle-arrow{
+  font-size:10px;color:var(--text-2);
+  display:inline-block;transition:transform .2s;
+}
+.sidebar-toggle-arrow.collapsed{transform:rotate(-90deg)}
+.sidebar-stat-row{
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:12px;padding:2px 0;
+}
+.sidebar-stat-label{color:var(--text-1);display:flex;align-items:center;gap:5px}
+.sidebar-stat-val{font-weight:600;font-variant-numeric:tabular-nums}
+.sidebar-stat-val.green{color:var(--green)}
+.sidebar-stat-val.yellow{color:var(--yellow)}
+.sidebar-stat-val.red{color:var(--red)}
+.sidebar-stat-val.grey{color:var(--grey)}
+.sidebar-stat-val.accent{color:var(--accent)}
+#sidebar-filtered-count{font-size:12px;color:var(--text-1);padding-top:4px;display:block}
 
 /* ── EXPORT DIALOG ─────────────────────────────────────── */
 #export-dialog{width:340px}
@@ -292,10 +306,10 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 #char-import-preview{font-size:12px;color:var(--text-1)}
 
 /* ── SCROLLBAR ─────────────────────────────────────────── */
-::-webkit-scrollbar{width:6px;height:6px}
-::-webkit-scrollbar-track{background:var(--bg-1)}
-::-webkit-scrollbar-thumb{background:var(--bg-3);border-radius:3px}
-::-webkit-scrollbar-thumb:hover{background:#444}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:var(--bg-2);border-radius:5px}
+::-webkit-scrollbar-thumb{background:#555;border-radius:5px;border:2px solid var(--bg-2)}
+::-webkit-scrollbar-thumb:hover{background:#888}
 </style>
 </head>
 <body>
@@ -334,7 +348,6 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       <div class="stat-chip" title="Maybe scenes"><span class="dot dot-yellow"></span><span id="stat-maybe">0</span> maybe</div>
       <div class="stat-chip" title="Untagged scenes"><span class="dot dot-grey"></span><span id="stat-untagged">0</span> untagged</div>
       <button id="btn-batch">Batch Edit</button>
-      <button id="btn-stats">Stats</button>
       <button id="btn-export">Export</button>
       <button id="btn-chars">Characters</button>
     </div>
@@ -386,9 +399,47 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
         <label for="toggle-select-mode" style="margin:0;font-size:12px">Enable multi-select</label>
       </div>
     </div>
-    <div class="sidebar-section">
-      <h4>Project</h4>
-      <div id="stat-total-display" style="font-size:12px;color:var(--text-1)">0 scenes total</div>
+    <div class="sidebar-section" id="sidebar-project-section">
+      <div class="sidebar-section-toggle" id="sidebar-project-toggle">
+        <h4>Project</h4>
+        <span class="sidebar-toggle-arrow" id="sidebar-project-arrow">▼</span>
+      </div>
+      <span id="sidebar-filtered-count" style="display:none">0 in view</span>
+      <div id="sidebar-project-expanded">
+        <div class="sidebar-stat-row" style="margin-top:6px">
+          <span class="sidebar-stat-label">Total scenes</span>
+          <span class="sidebar-stat-val" id="stats-total">0</span>
+        </div>
+        <div class="sidebar-stat-row">
+          <span class="sidebar-stat-label"><span class="dot dot-green"></span>Included</span>
+          <span class="sidebar-stat-val green" id="stats-included">0</span>
+        </div>
+        <div class="sidebar-stat-row">
+          <span class="sidebar-stat-label"><span class="dot dot-yellow"></span>Maybe</span>
+          <span class="sidebar-stat-val yellow" id="stats-maybe">0</span>
+        </div>
+        <div class="sidebar-stat-row">
+          <span class="sidebar-stat-label"><span class="dot dot-red"></span>Excluded</span>
+          <span class="sidebar-stat-val red" id="stats-excluded">0</span>
+        </div>
+        <div class="sidebar-stat-row">
+          <span class="sidebar-stat-label"><span class="dot dot-grey"></span>Untagged</span>
+          <span class="sidebar-stat-val grey" id="stats-untagged">0</span>
+        </div>
+        <hr>
+        <div class="sidebar-stat-row">
+          <span class="sidebar-stat-label">Narrative</span>
+          <span class="sidebar-stat-val accent" id="stats-narrative-pct">—</span>
+        </div>
+        <div class="sidebar-stat-row">
+          <span class="sidebar-stat-label">Char. coverage</span>
+          <span class="sidebar-stat-val accent" id="stats-char-pct">—</span>
+        </div>
+        <div class="sidebar-stat-row">
+          <span class="sidebar-stat-label">Characters</span>
+          <span class="sidebar-stat-val" id="stats-characters">0</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -578,26 +629,6 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       <button onclick="document.getElementById('char-import-dialog').close()">Cancel</button>
       <button class="primary" id="btn-char-import-apply">Import</button>
     </div>
-  </div>
-</dialog>
-
-<!-- ═══════════════════════════════════════════════
-     STATS DIALOG
-════════════════════════════════════════════════════ -->
-<dialog id="stats-dialog">
-  <div class="dialog-header">
-    <h2>Project Statistics</h2>
-    <button onclick="document.getElementById('stats-dialog').close()">✕</button>
-  </div>
-  <div class="stats-grid">
-    <div class="stat-block"><div class="stat-num" id="stats-total">0</div><div class="stat-label">Total Scenes</div></div>
-    <div class="stat-block green"><div class="stat-num" id="stats-included">0</div><div class="stat-label">Included</div></div>
-    <div class="stat-block yellow"><div class="stat-num" id="stats-maybe">0</div><div class="stat-label">Maybe</div></div>
-    <div class="stat-block red"><div class="stat-num" id="stats-excluded">0</div><div class="stat-label">Excluded</div></div>
-    <div class="stat-block grey"><div class="stat-num" id="stats-untagged">0</div><div class="stat-label">Untagged</div></div>
-    <div class="stat-block"><div class="stat-num" id="stats-narrative-pct">—</div><div class="stat-label">Narrative Coverage</div></div>
-    <div class="stat-block"><div class="stat-num" id="stats-char-pct">—</div><div class="stat-label">Character Coverage</div></div>
-    <div class="stat-block"><div class="stat-num" id="stats-characters">0</div><div class="stat-label">Characters Defined</div></div>
   </div>
 </dialog>
 
@@ -1113,6 +1144,7 @@ App.Grid = (function() {
     if (!project) { _inner.innerHTML = '<div id="empty-state">Open a project to begin.</div>'; return; }
 
     const scenes = _applyFilter(project.scenes, App.State.get('filter'));
+    App.State.set('filteredCount', scenes.length);
     const selectedId = App.State.get('selectedSceneId');
     const selectMode = App.State.get('selectMode');
     const selectedCards = App.State.get('selectedCards');
@@ -1881,6 +1913,7 @@ App.Stats = (function() {
     if (_initialized) return;
     _initialized = true;
     App.State.subscribe('projectChange', update);
+    App.State.subscribe('filterChange', update);
   }
 
   function update() {
@@ -1894,12 +1927,12 @@ App.Stats = (function() {
     const nPct = included.length ? Math.round(withNarrative.length / included.length * 100) : 0;
     const cPct = included.length ? Math.round(withChars.length / included.length * 100) : 0;
     const chars = App.State.get('project')?.characters?.length ?? 0;
+    const filteredCount = App.State.get('filteredCount') ?? scenes.length;
 
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     set('stat-included', included.length);
     set('stat-maybe', maybe.length);
     set('stat-untagged', untagged.length);
-    set('stat-total-display', `${scenes.length} scenes total`);
     set('stats-total', scenes.length);
     set('stats-included', included.length);
     set('stats-maybe', maybe.length);
@@ -1908,6 +1941,7 @@ App.Stats = (function() {
     set('stats-narrative-pct', nPct + '%');
     set('stats-char-pct', cPct + '%');
     set('stats-characters', chars);
+    set('sidebar-filtered-count', `${filteredCount} in view`);
   }
 
   return { init, update };
@@ -2142,12 +2176,21 @@ App.StartScreen = (function() {
 // HEADER WIRING
 // ═══════════════════════════════════════════════════════
 document.getElementById('btn-chars').addEventListener('click', () => App.CharMgr.open());
-document.getElementById('btn-stats').addEventListener('click', () => document.getElementById('stats-dialog').showModal());
 document.getElementById('btn-export').addEventListener('click', () => document.getElementById('export-dialog').showModal());
 document.getElementById('btn-batch').addEventListener('click', () => App.BatchEdit.open());
 
 document.getElementById('project-title').addEventListener('change', e => {
   App.State.mutateProject(project => { project.project.title = e.target.value; });
+});
+
+document.getElementById('sidebar-project-toggle').addEventListener('click', () => {
+  const expanded = document.getElementById('sidebar-project-expanded');
+  const collapsed = document.getElementById('sidebar-filtered-count');
+  const arrow = document.getElementById('sidebar-project-arrow');
+  const isOpen = expanded.style.display !== 'none';
+  expanded.style.display = isOpen ? 'none' : 'block';
+  collapsed.style.display = isOpen ? 'block' : 'none';
+  arrow.classList.toggle('collapsed', isOpen);
 });
 
 document.getElementById('btn-home').addEventListener('click', () => {
