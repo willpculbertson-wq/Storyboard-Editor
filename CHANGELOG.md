@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-05-11 — Adjustable editor height, configurable list columns
+
+- Scene editor now has a 6px drag handle at its top edge; drag up/down to resize; preference saved to `localStorage('storyboard_editorH')` and restored on reopen; default height 480px (fits all fields without scrolling); minimum 200px; maximum is viewport height minus 80px
+- `App.Editor.open()` now sets panel height from localStorage on every open instead of relying on the CSS `.open` rule
+- List view columns are now configurable: click `⊞` at the far right of the header to open a checkbox dropdown that toggles individual columns on/off; column visibility and order persisted in `localStorage('storyboard_listCols')`
+- Non-pinned list column headers are draggable for reorder; drag one header cell onto another to swap their positions; visual `drag-over` outline shown on drop target
+- Pinned columns (thumbnail, status dot, path) are always the first three columns and cannot be hidden or moved
+- New optional column: **Characters** (off by default) — shows up to 3 character aliases for the scene with `+N` overflow badge
+- `_applyListColStyle()` updates a dedicated `<style id="list-col-style">` element with a dynamic `grid-template-columns` value whenever the column set changes
+
 ## 2026-05-10 — Project initialized
 
 - Created `storyboard-editor-prd.md` with full product requirements for v1

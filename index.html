@@ -156,9 +156,15 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 #scene-editor{
   height:0;overflow:hidden;border-top:1px solid var(--border);
   background:var(--bg-1);transition:height .2s ease;
+  display:flex;flex-direction:column;
 }
-#scene-editor.open{height:390px}
-#scene-editor-inner{display:flex;height:100%}
+#scene-editor.open{height:480px}
+#editor-height-handle{
+  height:6px;flex:0 0 6px;cursor:ns-resize;
+  background:var(--border);transition:background .15s;flex-shrink:0;
+}
+#editor-height-handle:hover{background:var(--accent)}
+#scene-editor-inner{display:flex;flex:1;min-height:0;}
 #editor-preview{
   flex:0 0 240px;background:var(--bg-0);
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -357,6 +363,24 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .list-row:hover{background:var(--bg-2)}
 .list-row:nth-child(odd){background:var(--bg-1)}
 .list-row:nth-child(odd):hover{background:var(--bg-2)}
+.list-header-cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:grab;padding:1px 0}
+.list-header-cell.pinned,.list-header-cell.picker-btn{cursor:default}
+.list-header-cell.dragging{opacity:.4}
+.list-header-cell.drag-over{outline:2px solid var(--accent);outline-offset:-2px}
+.list-header-cell.picker-btn{text-align:center;font-size:14px;opacity:.5;cursor:pointer}
+.list-header-cell.picker-btn:hover{opacity:1;color:var(--accent)}
+#list-col-picker{
+  position:fixed;z-index:9999;background:var(--bg-2);border:1px solid var(--border);
+  border-radius:var(--radius);padding:6px 4px;min-width:140px;display:none;
+  box-shadow:0 4px 12px rgba(0,0,0,.3);
+}
+#list-col-picker.open{display:block}
+.list-col-picker-row{
+  display:flex;align-items:center;gap:6px;padding:3px 8px;
+  font-size:12px;cursor:pointer;color:var(--text-1);border-radius:2px;
+}
+.list-col-picker-row:hover{background:var(--bg-3);color:var(--text-0)}
+.list-col-picker-row input[type=checkbox]{width:auto;cursor:pointer}
 .list-thumb{width:56px;height:36px;object-fit:cover;border-radius:2px;display:block}
 .list-cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-1)}
 .list-cell.primary{color:var(--text-0)}
@@ -370,6 +394,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 ::-webkit-scrollbar-thumb{background:#555;border-radius:5px;border:2px solid var(--bg-2)}
 ::-webkit-scrollbar-thumb:hover{background:#888}
 </style>
+<style id="list-col-style"></style>
 </head>
 <body>
 
@@ -528,6 +553,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 
     <!-- Scene editor slides up from bottom -->
     <div id="scene-editor">
+      <div id="editor-height-handle"></div>
       <div id="scene-editor-inner">
         <div id="editor-preview">
           <img id="editor-preview-img" src="" alt="">
@@ -1182,12 +1208,53 @@ App.Grid = (function() {
   let _initialized = false;
   let _lastFilteredScenes = [];
 
+  // ── List column definitions ───────────────────────────
+  const _LIST_COL_DEFS = [
+    { id:'rating',    label:'Rating',     width:'90px',  defaultOn:true  },
+    { id:'shot',      label:'Shot',       width:'70px',  defaultOn:true  },
+    { id:'trans',     label:'Trans.',     width:'70px',  defaultOn:true  },
+    { id:'mood',      label:'Mood',       width:'100px', defaultOn:true  },
+    { id:'tags',      label:'Tags',       width:'130px', defaultOn:true  },
+    { id:'narrative', label:'Narrative',  width:'2fr',   defaultOn:true  },
+    { id:'chars',     label:'Characters', width:'120px', defaultOn:false },
+  ];
+
+  function _getListColState() {
+    const saved = localStorage.getItem('storyboard_listCols');
+    if (saved) { try { return JSON.parse(saved); } catch(e) {} }
+    return {
+      visible: _LIST_COL_DEFS.filter(c => c.defaultOn).map(c => c.id),
+      order:   _LIST_COL_DEFS.map(c => c.id),
+    };
+  }
+
+  function _saveListColState(state) {
+    localStorage.setItem('storyboard_listCols', JSON.stringify(state));
+  }
+
+  function _applyListColStyle(visibleCols) {
+    const widths = ['56px', '12px', '1fr', ...visibleCols.map(c => c.width), '28px'].join(' ');
+    document.getElementById('list-col-style').textContent =
+      `.list-header,.list-row{display:grid;grid-template-columns:${widths};align-items:center;gap:8px;padding:5px 10px;border-bottom:1px solid var(--border);font-size:12px}`;
+  }
+
+  let _pickerOpen = false;
+
   function init() {
     _inner = document.getElementById('image-grid-inner');
     if (!_initialized) {
       App.State.subscribe('projectChange', render);
       App.State.subscribe('filterChange', render);
       App.State.subscribe('viewMode', render);
+      // Close column picker when clicking outside
+      document.addEventListener('click', e => {
+        if (!_pickerOpen) return;
+        const picker = document.getElementById('list-col-picker');
+        if (!picker.contains(e.target)) {
+          picker.classList.remove('open');
+          _pickerOpen = false;
+        }
+      });
       _initialized = true;
     }
   }
@@ -1369,17 +1436,70 @@ App.Grid = (function() {
     _inner.className = 'list-view';
     _inner.innerHTML = '';
 
+    const state = _getListColState();
+    const visibleCols = state.order
+      .filter(id => state.visible.includes(id))
+      .map(id => _LIST_COL_DEFS.find(c => c.id === id))
+      .filter(Boolean);
+
+    _applyListColStyle(visibleCols);
+
     const frag = document.createDocumentFragment();
 
+    // Header
     const header = document.createElement('div');
     header.className = 'list-header';
-    ['', '', 'Path', 'Rating', 'Shot', 'Trans.', 'Mood', 'Tags', 'Narrative'].forEach(text => {
+
+    ['', '', 'Path'].forEach(text => {
       const cell = document.createElement('span');
+      cell.className = 'list-header-cell pinned';
       cell.textContent = text;
       header.appendChild(cell);
     });
+
+    visibleCols.forEach(col => {
+      const cell = document.createElement('span');
+      cell.className = 'list-header-cell';
+      cell.textContent = col.label;
+      cell.draggable = true;
+      cell.dataset.colId = col.id;
+
+      cell.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', col.id);
+        e.dataTransfer.effectAllowed = 'move';
+        cell.classList.add('dragging');
+      });
+      cell.addEventListener('dragend', () => cell.classList.remove('dragging'));
+      cell.addEventListener('dragover', e => {
+        e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+        cell.classList.add('drag-over');
+      });
+      cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
+      cell.addEventListener('drop', e => {
+        e.preventDefault(); cell.classList.remove('drag-over');
+        const fromId = e.dataTransfer.getData('text/plain');
+        if (fromId === col.id) return;
+        const s = _getListColState();
+        const fi = s.order.indexOf(fromId), ti = s.order.indexOf(col.id);
+        s.order.splice(fi, 1); s.order.splice(ti, 0, fromId);
+        _saveListColState(s);
+        _renderList(_lastFilteredScenes);
+      });
+      header.appendChild(cell);
+    });
+
+    const pickerBtn = document.createElement('span');
+    pickerBtn.className = 'list-header-cell picker-btn';
+    pickerBtn.textContent = '⊞';
+    pickerBtn.title = 'Choose columns';
+    pickerBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      _toggleColPicker(pickerBtn);
+    });
+    header.appendChild(pickerBtn);
     frag.appendChild(header);
 
+    // Rows
     scenes.forEach(scene => {
       const row = document.createElement('div');
       row.className = 'list-row';
@@ -1388,8 +1508,7 @@ App.Grid = (function() {
 
       const thumbWrap = document.createElement('div');
       const img = document.createElement('img');
-      img.className = 'list-thumb';
-      img.alt = scene.asset.path;
+      img.className = 'list-thumb'; img.alt = scene.asset.path;
       thumbWrap.appendChild(img);
 
       const dot = document.createElement('div');
@@ -1400,42 +1519,94 @@ App.Grid = (function() {
       pathCell.textContent = scene.asset.path;
       pathCell.title = scene.asset.path;
 
-      const tagsDiv = document.createElement('div');
-      tagsDiv.className = 'list-tags';
-      (scene.tags || []).slice(0, 3).forEach(t => {
-        const chip = document.createElement('span');
-        chip.className = 'list-tag';
-        chip.textContent = t;
-        tagsDiv.appendChild(chip);
+      row.append(thumbWrap, dot, pathCell);
+
+      visibleCols.forEach(col => {
+        if (col.id === 'tags') {
+          const div = document.createElement('div');
+          div.className = 'list-tags';
+          (scene.tags || []).slice(0, 3).forEach(t => {
+            const chip = document.createElement('span');
+            chip.className = 'list-tag'; chip.textContent = t;
+            div.appendChild(chip);
+          });
+          if ((scene.tags || []).length > 3) {
+            const more = document.createElement('span');
+            more.className = 'list-tag'; more.textContent = `+${scene.tags.length - 3}`;
+            div.appendChild(more);
+          }
+          row.appendChild(div);
+        } else if (col.id === 'narrative') {
+          const div = document.createElement('div');
+          div.className = 'list-narrative';
+          const t = scene.narrative || '';
+          div.textContent = t ? (t.length > 80 ? t.slice(0, 80) + '…' : t) : '—';
+          if (t.length > 80) div.title = t;
+          row.appendChild(div);
+        } else if (col.id === 'chars') {
+          const div = document.createElement('div');
+          div.className = 'list-cell';
+          const proj = App.State.get('project');
+          const names = (scene.characters || []).slice(0, 3).map(e => {
+            const c = (proj?.characters || []).find(ch => ch.id === e.characterId);
+            return c ? (c.alias || c.name) : '?';
+          });
+          if ((scene.characters || []).length > 3) names.push(`+${scene.characters.length - 3}`);
+          div.textContent = names.join(', ') || '—';
+          row.appendChild(div);
+        } else {
+          const val = col.id === 'rating' ? scene.contentRating
+                    : col.id === 'shot'   ? scene.shot?.type
+                    : col.id === 'trans'  ? scene.shot?.transition
+                    : col.id === 'mood'   ? scene.mood : null;
+          row.appendChild(_listCell(val));
+        }
       });
-      if ((scene.tags || []).length > 3) {
-        const more = document.createElement('span');
-        more.className = 'list-tag';
-        more.textContent = `+${scene.tags.length - 3}`;
-        tagsDiv.appendChild(more);
-      }
 
-      const narDiv = document.createElement('div');
-      narDiv.className = 'list-narrative';
-      const narText = scene.narrative || '';
-      narDiv.textContent = narText ? (narText.length > 80 ? narText.slice(0, 80) + '…' : narText) : '—';
-      if (narText.length > 80) narDiv.title = narText;
-
-      row.append(
-        thumbWrap, dot, pathCell,
-        _listCell(scene.contentRating),
-        _listCell(scene.shot?.type),
-        _listCell(scene.shot?.transition),
-        _listCell(scene.mood),
-        tagsDiv, narDiv
-      );
+      row.appendChild(document.createElement('div')); // picker-btn column spacer
       row.addEventListener('click', () => App.Editor.open(scene.id));
-
       frag.appendChild(row);
       App.LazyLoader.observe(row);
     });
 
     _inner.appendChild(frag);
+  }
+
+  function _toggleColPicker(btn) {
+    const picker = document.getElementById('list-col-picker');
+    if (_pickerOpen) {
+      picker.classList.remove('open');
+      _pickerOpen = false;
+      return;
+    }
+    const state = _getListColState();
+    picker.innerHTML = '';
+    _LIST_COL_DEFS.forEach(col => {
+      const lbl = document.createElement('label');
+      lbl.className = 'list-col-picker-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = state.visible.includes(col.id);
+      cb.addEventListener('change', e => {
+        e.stopPropagation();
+        const s = _getListColState();
+        if (cb.checked) { if (!s.visible.includes(col.id)) s.visible.push(col.id); }
+        else { s.visible = s.visible.filter(id => id !== col.id); }
+        _saveListColState(s);
+        _renderList(_lastFilteredScenes);
+        // Rebuild picker in place
+        _pickerOpen = false;
+        _toggleColPicker(btn);
+      });
+      lbl.appendChild(cb);
+      lbl.append(' ' + col.label);
+      picker.appendChild(lbl);
+    });
+    const rect = btn.getBoundingClientRect();
+    picker.style.top   = (rect.bottom + 4) + 'px';
+    picker.style.right = (window.innerWidth - rect.right) + 'px';
+    picker.style.left  = 'auto';
+    picker.classList.add('open');
+    _pickerOpen = true;
   }
 
   function _listCell(value) {
@@ -1559,6 +1730,40 @@ App.Editor = (function() {
         document.body.style.userSelect = '';
       });
     })();
+
+    // Vertical resize (editor height)
+    (function() {
+      const hHandle = document.getElementById('editor-height-handle');
+      const MIN_H = 200, MAX_H = () => window.innerHeight - 80;
+      let dragging = false, startY = 0, startH = 0;
+
+      hHandle.addEventListener('mousedown', e => {
+        if (!_panel.classList.contains('open')) return;
+        dragging = true;
+        startY   = e.clientY;
+        startH   = _panel.offsetHeight;
+        document.body.style.cursor     = 'ns-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', e => {
+        if (!dragging) return;
+        // Panel is at bottom; dragging up (negative delta) increases height
+        const newH = Math.max(MIN_H, Math.min(MAX_H(), startH - (e.clientY - startY)));
+        _panel.style.transition = 'none';
+        _panel.style.height     = newH + 'px';
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        document.body.style.cursor     = '';
+        document.body.style.userSelect = '';
+        _panel.style.transition = '';
+        localStorage.setItem('storyboard_editorH', _panel.offsetHeight);
+      });
+    })();
   }
 
   function open(sceneId) {
@@ -1568,6 +1773,8 @@ App.Editor = (function() {
     if (!scene) return;
     _panel.classList.toggle('detail-mode', App.State.get('viewMode') === 'list');
     _populate(scene);
+    const savedH = localStorage.getItem('storyboard_editorH');
+    _panel.style.height = (savedH ? parseInt(savedH) : 480) + 'px';
     _panel.classList.add('open');
     App.Grid.refreshCard(sceneId);
     _loadPreviewImage(scene);
@@ -2666,5 +2873,6 @@ window.addEventListener('beforeunload', () => {
   if (App.State.get('dirty')) App.FS.saveNow();
 });
 </script>
+<div id="list-col-picker"></div>
 </body>
 </html>
