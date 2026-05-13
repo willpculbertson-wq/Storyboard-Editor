@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-05-12 — Phase 1: Sequence tree data model
+
+- Replaced flat `project.scenes[]` with a recursive `project.sequence[]` tree; project schema bumped to v1.1.0
+- Added `project.variables[]` array to the project root (empty for now; will hold global named variables)
+- Added `App.Seq` utility module with: `walk()`, `flatScenes()`, `buildIndex()`, `findById()`, `findSceneById()`, `move()`, `remove()`, `insertAfter()` — all tree-recursive, handling `group` and `branch_split` containers
+- Added `migrateProject()` — automatically upgrades v1.0 projects (with `scenes[]`) to v1.1 on load; adds `type:'scene'` to every existing scene element; called at all three project-load paths
+- `buildEmptyScene()` now sets `type:'scene'` on every new scene
+- `App.State.mutateProject()` and `initIndex()` now call `App.Seq.buildIndex()` instead of iterating a flat array; `_sceneIndex` now covers all element types in the tree
+- `reconcileScenes()` uses `App.Seq.flatScenes()` to find existing scenes and pushes new ones to `project.sequence`
+- `App.DnD.onDrop()` uses `App.Seq.move()` for reordering — works across container boundaries
+- All modules updated to use `App.Seq.flatScenes(project.sequence)` instead of `project.scenes`: `App.Grid`, `App.Stats`, `App.Filters`, `App.BatchEdit`, `App.Export`, `App.Hasher`
+- `App.Editor` mutations use `App.Seq.findSceneById()` instead of `Array.find()` on the flat array
+- Export functions updated: filtered JSON exports `sequence` key; LLM package raw JSON block also uses `sequence`
+
 ## 2026-05-11 — Adjustable editor height, configurable list columns
 
 - Scene editor now has a 6px drag handle at its top edge; drag up/down to resize; preference saved to `localStorage('storyboard_editorH')` and restored on reopen; default height 480px (fits all fields without scrolling); minimum 200px; maximum is viewport height minus 80px

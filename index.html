@@ -798,16 +798,18 @@ function buildEmptyProject(title) {
   return {
     project: {
       id: crypto.randomUUID(), title: title || 'Untitled Project',
-      version: '1.0.0', created: new Date().toISOString(), modified: new Date().toISOString(),
+      version: '1.1.0', created: new Date().toISOString(), modified: new Date().toISOString(),
     },
     characters: [],
-    scenes: [],
+    variables: [],
+    sequence: [],
   };
 }
 
 // file = { name: 'scene_001.jpg', path: '00-prelude/scene_001.jpg' }
 function buildEmptyScene(file) {
   return {
+    type: 'scene',
     id: crypto.randomUUID(),
     status: 'untagged',
     asset: { filename: file.name, path: file.path, type: 'image', hash: '', duration: null },
@@ -859,6 +861,77 @@ App.Utils = {
 };
 
 // ═══════════════════════════════════════════════════════
+// SEQUENCE TREE UTILITIES
+// project.sequence is a recursive array of elements. Each
+// element has a `type` ('scene','group','branch_split',
+// 'rejoin','action') and may contain child sequences.
+// ═══════════════════════════════════════════════════════
+App.Seq = {
+  // Depth-first walk. visitor(el, parentArray, index).
+  walk(seq, visitor) {
+    for (let i = 0; i < seq.length; i++) {
+      const el = seq[i];
+      visitor(el, seq, i);
+      if (el.type === 'group' && Array.isArray(el.sequence))
+        this.walk(el.sequence, visitor);
+      if (el.type === 'branch_split' && Array.isArray(el.lanes))
+        el.lanes.forEach(lane => { if (Array.isArray(lane.sequence)) this.walk(lane.sequence, visitor); });
+    }
+  },
+
+  // Flat ordered array of all type:'scene' elements.
+  flatScenes(seq) {
+    const out = [];
+    this.walk(seq || [], el => { if (el.type === 'scene') out.push(el); });
+    return out;
+  },
+
+  // Map of id → element for every element in the tree.
+  buildIndex(seq) {
+    const map = new Map();
+    this.walk(seq || [], el => map.set(el.id, el));
+    return map;
+  },
+
+  // Find element by id. Returns { el, arr, index } or null.
+  findById(seq, id) {
+    let found = null;
+    this.walk(seq || [], (el, arr, i) => { if (!found && el.id === id) found = { el, arr, index: i }; });
+    return found;
+  },
+
+  // Convenience: returns the element directly (or null).
+  findSceneById(seq, id) { return this.findById(seq, id)?.el ?? null; },
+
+  // Move srcId to the position of targetId (srcId inserted before targetId).
+  move(seq, srcId, targetId) {
+    const src = this.findById(seq, srcId);
+    if (!src) return false;
+    const [moved] = src.arr.splice(src.index, 1);
+    const tgt = this.findById(seq, targetId);
+    if (!tgt) { src.arr.splice(src.index, 0, moved); return false; }
+    tgt.arr.splice(tgt.index, 0, moved);
+    return true;
+  },
+
+  // Remove element by id. Returns true if found.
+  remove(seq, id) {
+    const found = this.findById(seq, id);
+    if (!found) return false;
+    found.arr.splice(found.index, 1);
+    return true;
+  },
+
+  // Insert el immediately after targetId, or push to root if targetId is null/missing.
+  insertAfter(seq, el, targetId) {
+    if (!targetId) { seq.push(el); return; }
+    const tgt = this.findById(seq, targetId);
+    if (!tgt) { seq.push(el); return; }
+    tgt.arr.splice(tgt.index + 1, 0, el);
+  },
+};
+
+// ═══════════════════════════════════════════════════════
 // INDEXEDDB HELPERS
 // ═══════════════════════════════════════════════════════
 App.IDB = (function() {
@@ -897,6 +970,22 @@ App.IDB = (function() {
   return { put, get };
 })();
 
+// Upgrades a loaded project object to the current schema in-place.
+// v1.0 used project.scenes[]; v1.1+ uses project.sequence[].
+function migrateProject(p) {
+  if (!p) return p;
+  if (Array.isArray(p.scenes) && !Array.isArray(p.sequence)) {
+    p.sequence = p.scenes.map(s => ({ type: 'scene', ...s }));
+    delete p.scenes;
+  }
+  if (!Array.isArray(p.sequence))  p.sequence  = [];
+  if (!Array.isArray(p.variables)) p.variables = [];
+  // Ensure every element has a type field
+  App.Seq.walk(p.sequence, el => { if (!el.type) el.type = 'scene'; });
+  if (!p.project.version || p.project.version === '1.0.0') p.project.version = '1.1.0';
+  return p;
+}
+
 // ═══════════════════════════════════════════════════════
 // STATE MANAGEMENT
 // ═══════════════════════════════════════════════════════
@@ -926,8 +1015,7 @@ App.State = (function() {
     fn(_state.project);
     _state.project.project.modified = new Date().toISOString();
     _state.dirty = true;
-    _state._sceneIndex.clear();
-    _state.project.scenes.forEach(s => _state._sceneIndex.set(s.id, s));
+    _state._sceneIndex = App.Seq.buildIndex(_state.project.sequence);
     _emit('projectChange', _state.project);
     App.FS.scheduleSave();
   }
@@ -938,8 +1026,7 @@ App.State = (function() {
   }
 
   function initIndex() {
-    _state._sceneIndex.clear();
-    if (_state.project) _state.project.scenes.forEach(s => _state._sceneIndex.set(s.id, s));
+    if (_state.project) _state._sceneIndex = App.Seq.buildIndex(_state.project.sequence);
   }
 
   return { get, set, mutateProject, subscribe, initIndex };
@@ -1095,10 +1182,10 @@ App.FS = (function() {
 // ═══════════════════════════════════════════════════════
 function reconcileScenes(imageFiles) {
   App.State.mutateProject(project => {
-    const existing = new Map(project.scenes.map(s => [s.asset.path, s]));
+    const existing = new Map(App.Seq.flatScenes(project.sequence).map(s => [s.asset.path, s]));
     for (const f of imageFiles) {
       if (!existing.has(f.path)) {
-        project.scenes.push(buildEmptyScene(f));
+        project.sequence.push(buildEmptyScene(f));
       }
     }
   });
@@ -1183,12 +1270,7 @@ App.DnD = (function() {
     e.currentTarget.classList.remove('drag-over');
     if (!targetId || targetId === _srcId) return;
     App.State.mutateProject(project => {
-      const scenes = project.scenes;
-      const fi = scenes.findIndex(s => s.id === _srcId);
-      const ti = scenes.findIndex(s => s.id === targetId);
-      if (fi < 0 || ti < 0) return;
-      const [moved] = scenes.splice(fi, 1);
-      scenes.splice(ti, 0, moved);
+      App.Seq.move(project.sequence, _srcId, targetId);
     });
   }
   function onDragEnd(e) {
@@ -1281,7 +1363,7 @@ App.Grid = (function() {
       return;
     }
 
-    const scenes = _applyFilter(project.scenes, App.State.get('filter'));
+    const scenes = _applyFilter(App.Seq.flatScenes(project.sequence), App.State.get('filter'));
     App.State.set('filteredCount', scenes.length);
     _lastFilteredScenes = scenes;
 
@@ -1832,7 +1914,7 @@ App.Editor = (function() {
     // Alternate-of dropdown
     const altEl = document.getElementById('ed-alternate-of');
     altEl.innerHTML = '<option value="">— none —</option>';
-    for (const s of project.scenes) {
+    for (const s of App.Seq.flatScenes(project.sequence)) {
       if (s.id === scene.id) continue;
       const opt = document.createElement('option');
       opt.value = s.id; opt.textContent = s.asset.path;
@@ -1889,7 +1971,7 @@ App.Editor = (function() {
   function _buildTagDatalist() {
     const dl = document.getElementById('tag-datalist');
     const allTags = new Set();
-    App.State.get('project').scenes.forEach(s => s.tags?.forEach(t => allTags.add(t)));
+    App.Seq.flatScenes(App.State.get('project').sequence).forEach(s => s.tags?.forEach(t => allTags.add(t)));
     dl.innerHTML = '';
     allTags.forEach(tag => { const o = document.createElement('option'); o.value = tag; dl.appendChild(o); });
   }
@@ -1900,7 +1982,7 @@ App.Editor = (function() {
       const tag = e.target.value.trim().replace(/,$/, '');
       if (!tag) return;
       App.State.mutateProject(project => {
-        const scene = project.scenes.find(s => s.id === _currentId);
+        const scene = App.Seq.findSceneById(project.sequence, _currentId);
         if (!scene.tags) scene.tags = [];
         if (!scene.tags.includes(tag)) scene.tags.push(tag);
       });
@@ -1912,7 +1994,7 @@ App.Editor = (function() {
 
   function _removeTag(tag) {
     App.State.mutateProject(project => {
-      const scene = project.scenes.find(s => s.id === _currentId);
+      const scene = App.Seq.findSceneById(project.sequence, _currentId);
       scene.tags = (scene.tags || []).filter(t => t !== tag);
     });
     _populateTags(App.State.get('_sceneIndex').get(_currentId));
@@ -1923,7 +2005,7 @@ App.Editor = (function() {
     const charId = sel.value;
     if (!charId) return;
     App.State.mutateProject(project => {
-      const scene = project.scenes.find(s => s.id === _currentId);
+      const scene = App.Seq.findSceneById(project.sequence, _currentId);
       if (!scene.characters) scene.characters = [];
       if (!scene.characters.some(c => c.characterId === charId)) {
         scene.characters.push({ characterId: charId, pose: '', expression: '' });
@@ -1935,14 +2017,14 @@ App.Editor = (function() {
 
   function _removeCharacter(idx) {
     App.State.mutateProject(project => {
-      project.scenes.find(s => s.id === _currentId)?.characters.splice(idx, 1);
+      App.Seq.findSceneById(project.sequence, _currentId)?.characters.splice(idx, 1);
     });
     _populateCharacters(App.State.get('_sceneIndex').get(_currentId));
   }
 
   function _onCharFieldInput(e, idx, field) {
     App.State.mutateProject(project => {
-      const scene = project.scenes.find(s => s.id === _currentId);
+      const scene = App.Seq.findSceneById(project.sequence, _currentId);
       if (scene?.characters[idx]) scene.characters[idx][field] = e.target.value;
     });
   }
@@ -1953,7 +2035,7 @@ App.Editor = (function() {
     let value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     if (e.target.type === 'number') value = Number(value);
     App.State.mutateProject(project => {
-      const scene = project.scenes.find(s => s.id === _currentId);
+      const scene = App.Seq.findSceneById(project.sequence, _currentId);
       if (scene) App.Utils.setNested(scene, field, value);
     });
     if (field === 'status') App.Grid.refreshCard(_currentId);
@@ -1965,7 +2047,7 @@ App.Editor = (function() {
     if (!field || !textFields.includes(field) || !_currentId) return;
     const project = App.State.get('project');
     if (!project) return;
-    const scene = project.scenes.find(s => s.id === _currentId);
+    const scene = App.Seq.findSceneById(project.sequence, _currentId);
     if (!scene) return;
     App.Utils.setNested(scene, field, e.target.value);
     project.project.modified = new Date().toISOString();
@@ -2343,7 +2425,7 @@ App.Filters = (function() {
     const ids = [...App.State.get('selectedCards')];
     if (!ids.length) return;
     App.State.mutateProject(project => {
-      project.scenes.forEach(s => { if (ids.includes(s.id)) s.status = status; });
+      App.Seq.flatScenes(project.sequence).forEach(s => { if (ids.includes(s.id)) s.status = status; });
     });
     App.State.get('selectedCards').clear();
     updateBulkBar();
@@ -2384,7 +2466,7 @@ App.BatchEdit = (function() {
 
   function _buildDirMap(project) {
     const map = new Map(); // dir -> count
-    project.scenes.forEach(s => {
+    App.Seq.flatScenes(project.sequence).forEach(s => {
       const d = _getSceneDir(s);
       map.set(d, (map.get(d) || 0) + 1);
     });
@@ -2473,7 +2555,7 @@ App.BatchEdit = (function() {
   function _updatePreview() {
     const selectedDirs = _getSelectedDirs();
     const project = App.State.get('project');
-    const count = project ? project.scenes.filter(s => selectedDirs.has(_getSceneDir(s))).length : 0;
+    const count = project ? App.Seq.flatScenes(project.sequence).filter(s => selectedDirs.has(_getSceneDir(s))).length : 0;
     document.getElementById('batch-preview-text').textContent =
       `${count} scene${count !== 1 ? 's' : ''} will be affected`;
   }
@@ -2500,11 +2582,11 @@ App.BatchEdit = (function() {
     if (updates.length === 0) { alert('No fields have a value selected to apply.'); return; }
 
     const project = App.State.get('project');
-    const affected = project.scenes.filter(s => selectedDirs.has(_getSceneDir(s))).length;
+    const affected = App.Seq.flatScenes(project.sequence).filter(s => selectedDirs.has(_getSceneDir(s))).length;
     if (!confirm(`Apply ${updates.length} field change${updates.length > 1 ? 's' : ''} to ${affected} scene${affected > 1 ? 's' : ''}?`)) return;
 
     App.State.mutateProject(project => {
-      project.scenes.forEach(scene => {
+      App.Seq.flatScenes(project.sequence).forEach(scene => {
         if (!selectedDirs.has(_getSceneDir(scene))) return;
         updates.forEach(({ key, value }) => App.Utils.setNested(scene, key, value));
       });
@@ -2532,7 +2614,7 @@ App.Stats = (function() {
   }
 
   function update() {
-    const scenes = App.State.get('project')?.scenes || [];
+    const scenes = App.Seq.flatScenes(App.State.get('project')?.sequence || []);
     const included = scenes.filter(s => s.status === 'included');
     const excluded = scenes.filter(s => s.status === 'excluded');
     const maybe    = scenes.filter(s => s.status === 'maybe');
@@ -2586,14 +2668,15 @@ App.Export = (function() {
 
   function exportFilteredJSON() {
     const p = App.State.get('project');
-    const out = { ...p, scenes: p.scenes.filter(s => s.status === 'included') };
+    const includedScenes = App.Seq.flatScenes(p.sequence).filter(s => s.status === 'included');
+    const out = { ...p, sequence: includedScenes };
     _download(`${_slug()}_included.json`, JSON.stringify(out, null, 2), 'application/json');
     document.getElementById('export-dialog').close();
   }
 
   function exportLLMPackage() {
     const p = App.State.get('project');
-    const included = p.scenes.filter(s => s.status === 'included');
+    const included = App.Seq.flatScenes(p.sequence).filter(s => s.status === 'included');
     const chars = p.characters;
 
     let md = `# ${p.project.title} — Storyboard Brief\n\n`;
@@ -2644,7 +2727,7 @@ App.Export = (function() {
     });
 
     md += `## Raw JSON\n\n\`\`\`json\n`;
-    md += JSON.stringify({ ...p, scenes: included }, null, 2);
+    md += JSON.stringify({ ...p, sequence: included }, null, 2);
     md += `\n\`\`\`\n`;
 
     _download(`${_slug()}_llm_package.md`, md, 'text/markdown');
@@ -2663,7 +2746,7 @@ App.Hasher = (function() {
     if (!project) return;
     const fc = App.State.get('fileHandleCache');
     let count = 0;
-    for (const scene of project.scenes) {
+    for (const scene of App.Seq.flatScenes(project.sequence)) {
       if (scene.asset.hash) continue;
       const handle = fc.get(scene.asset.path);  // keyed by path
       if (!handle) continue;
@@ -2737,7 +2820,7 @@ App.StartScreen = (function() {
     const dirHandle = App.State.get('dirHandle');
     const existing = await App.FS.loadProject(dirHandle);
     if (!existing) { alert('Could not find storyboard.json in that folder.'); return; }
-    App.State.set('project', existing);
+    App.State.set('project', migrateProject(existing));
     await _enterProject(dirHandle);
   }
 
@@ -2757,7 +2840,7 @@ App.StartScreen = (function() {
     try { dirHandle = await App.FS.openFolder(); } catch { return; }
     const existing = await App.FS.loadProject(dirHandle);
     if (existing) {
-      App.State.set('project', existing);
+      App.State.set('project', migrateProject(existing));
       await _enterProject(dirHandle);
     } else {
       if (confirm('No project found in this folder. Create a new one here?')) {
@@ -2859,7 +2942,7 @@ document.getElementById('btn-home').addEventListener('click', () => {
     try {
       const existing = await App.FS.loadProject(dirHandle);
       if (existing) {
-        App.State.set('project', existing);
+        App.State.set('project', migrateProject(existing));
         await App.StartScreen.enterProject(dirHandle);
         return;
       }
