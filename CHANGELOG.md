@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-05-13 — Phase 4: Branch-aware focus view and Variables panel
+
+- Focus view now detects when the selected scene is inside a branch and switches to a horizontal lane-strip layout: each lane is rendered as a labelled row of `focus-strip-cell` thumbnails (96 px wide, current cell 144 px with accent outline); arrow keys navigate within the active lane
+- Added `_findBranchContext(sequence, sceneId)` — walks the full sequence tree and returns the `branch_split` element whose lanes contain the given scene
+- Added `_renderFocusBranched(branchEl, selectedId)` — renders lane strips with `#image-grid-inner.focus-lanes-wrap` layout; sets `_focusLaneScenes` so arrow keys follow the current lane
+- Added `_focusLaneScenes` module var; arrow key handler uses `_focusLaneScenes || _lastFilteredScenes` so navigation stays within a branch lane when in branched view
+- Added `App.VarMgr` module — CRUD dialog for `project.variables[]`; each variable has name, type (number|boolean), and defaultValue; type change resets defaultValue to `0` or `false`; dialog bound to `btn-vars` in the header
+- Added Variables dialog HTML (`#variables-dialog`) and CSS (`.var-row-header`, `.var-row`) before the List View section
+
+## 2026-05-13 — Phase 3: List view as file-system hierarchy
+
+- `_renderList(scenes)` rebuilt as a folder-collapsible hierarchy: root-level scenes shown first, then each subdirectory as a collapsible folder row followed by its scene rows
+- Added `_buildFolderRow(dir, count)` — clickable row with folder icon, directory name, scene count badge, and collapse arrow; collapse state persisted to `localStorage('storyboard_collapsedFolders')`
+- Scenes under a folder show just `asset.filename` as the path label; full relative path shown in the row `title` attribute
+- LazyLoader.observe called after fragment append to avoid missing newly rendered rows
+- View-toggle button order changed to List → Grid → Focus; "Collapse All" / "Expand All" text buttons (no icons) for grid mode
+
 ## 2026-05-12 — Phase 2: Grid view rebuilt as recursive sequence tree renderer
 
 - Replaced flat `_renderGrid(scenes)` with `_renderGridView(sequence)` — renders the full `project.sequence` tree without filtering; grid mode always shows the complete narrative structure
