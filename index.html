@@ -501,19 +501,19 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
     <button id="btn-home" title="Back to projects" style="font-size:18px;background:transparent;padding:4px 6px">⌂</button>
     <input id="project-title" type="text" value="Untitled Project" spellcheck="false">
     <span id="save-indicator">Saved</span>
+    <div class="view-toggle" id="view-toggle" style="margin-left:16px">
+      <button class="view-btn" data-view="list"  title="List view">≡</button>
+      <button class="view-btn" data-view="grid"  title="Grid view">⊞</button>
+      <button class="view-btn" data-view="focus" title="Focus view">⊟</button>
+    </div>
     <div class="header-spacer"></div>
     <div class="header-btns">
-      <div class="view-toggle" id="view-toggle">
-        <button class="view-btn" data-view="grid"  title="Grid view">⊞</button>
-        <button class="view-btn" data-view="focus" title="Focus view">⊟</button>
-        <button class="view-btn" data-view="list"  title="List view">≡</button>
-      </div>
       <div class="stat-chip" title="Included scenes"><span class="dot dot-green"></span><span id="stat-included">0</span> included</div>
       <div class="stat-chip" title="Maybe scenes"><span class="dot dot-yellow"></span><span id="stat-maybe">0</span> maybe</div>
       <div class="stat-chip" title="Untagged scenes"><span class="dot dot-grey"></span><span id="stat-untagged">0</span> untagged</div>
-      <button class="grid-only" id="btn-collapse-all" title="Collapse all groups">⊟ All</button>
-      <button class="grid-only" id="btn-expand-all"   title="Expand all groups">⊞ All</button>
-      <button class="grid-only" id="btn-add-group"    title="Add group">+ Group</button>
+      <button class="grid-only" id="btn-collapse-all">Collapse All</button>
+      <button class="grid-only" id="btn-expand-all">Expand All</button>
+      <button class="grid-only" id="btn-add-group">+ Group</button>
       <button id="btn-batch">Batch Edit</button>
       <button id="btn-export">Export</button>
       <button id="btn-chars">Characters</button>
