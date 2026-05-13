@@ -524,6 +524,11 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .grid-only{display:none}
 #app-shell.view-grid .grid-only{display:inline-flex}
 
+/* Collapse/Expand All — visible in grid + list, not focus */
+.tree-btn-group{display:none;align-items:center;gap:4px;margin-left:8px}
+#app-shell.view-grid .tree-btn-group,
+#app-shell.view-list .tree-btn-group{display:flex}
+
 /* ── SCROLLBAR ─────────────────────────────────────────── */
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track{background:var(--bg-2);border-radius:5px}
@@ -567,13 +572,15 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       <button class="view-btn" data-view="grid"  title="Grid view">⊞</button>
       <button class="view-btn" data-view="focus" title="Focus view">⊟</button>
     </div>
+    <div class="tree-btn-group">
+      <button id="btn-collapse-all">Collapse All</button>
+      <button id="btn-expand-all">Expand All</button>
+    </div>
     <div class="header-spacer"></div>
     <div class="header-btns">
       <div class="stat-chip" title="Included scenes"><span class="dot dot-green"></span><span id="stat-included">0</span> included</div>
       <div class="stat-chip" title="Maybe scenes"><span class="dot dot-yellow"></span><span id="stat-maybe">0</span> maybe</div>
       <div class="stat-chip" title="Untagged scenes"><span class="dot dot-grey"></span><span id="stat-untagged">0</span> untagged</div>
-      <button class="grid-only" id="btn-collapse-all">Collapse All</button>
-      <button class="grid-only" id="btn-expand-all">Expand All</button>
       <button class="grid-only" id="btn-add-group">+ Group</button>
       <button id="btn-batch">Batch Edit</button>
       <button id="btn-export">Export</button>
@@ -1572,9 +1579,15 @@ App.Grid = (function() {
           _pickerOpen = false;
         }
       });
-      // Grid-only header buttons
-      document.getElementById('btn-collapse-all')?.addEventListener('click', collapseAll);
-      document.getElementById('btn-expand-all')?.addEventListener('click', expandAll);
+      // Collapse/Expand All — view-aware (grid: sequence groups; list: folders)
+      document.getElementById('btn-collapse-all')?.addEventListener('click', () => {
+        if (App.State.get('viewMode') === 'list') _collapseAllFolders();
+        else collapseAll();
+      });
+      document.getElementById('btn-expand-all')?.addEventListener('click', () => {
+        if (App.State.get('viewMode') === 'list') _expandAllFolders();
+        else expandAll();
+      });
       document.getElementById('btn-add-group')?.addEventListener('click', () => addGroupAfter(null));
       App.CtxMenu.init();
       _initialized = true;
@@ -2217,54 +2230,100 @@ App.Grid = (function() {
     header.appendChild(pickerBtn);
     frag.appendChild(header);
 
-    // ── Group scenes by first directory segment ───────────
-    const rootScenes = scenes.filter(s => !App.Utils.dirOf(s.asset.path));
-    const byDir = new Map();
-    scenes.forEach(s => {
-      const dir = App.Utils.dirOf(s.asset.path);
-      if (!dir) return;
-      if (!byDir.has(dir)) byDir.set(dir, []);
-      byDir.get(dir).push(s);
-    });
-    const sortedDirs = [...byDir.keys()].sort((a, b) =>
-      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-
-    // Root-level scenes (no subdirectory)
-    rootScenes.forEach(scene => frag.appendChild(_buildListRow(scene, scene.asset.filename, visibleCols)));
-
-    // Folder sections
-    sortedDirs.forEach(dir => {
-      const dirScenes = byDir.get(dir);
-      frag.appendChild(_buildFolderRow(dir, dirScenes.length));
-      if (!_collapsedFolders.has(dir)) {
-        dirScenes.forEach(scene => frag.appendChild(_buildListRow(scene, scene.asset.filename, visibleCols)));
-      }
-    });
+    // ── Recursive folder tree ─────────────────────────────
+    _renderFolderNode(_buildFolderTree(scenes), frag, visibleCols, 0);
 
     _inner.appendChild(frag);
     _inner.querySelectorAll('.list-row').forEach(row => App.LazyLoader.observe(row));
   }
 
-  function _buildFolderRow(dir, count) {
-    const row = document.createElement('div');
-    row.className = 'list-folder-row' + (_collapsedFolders.has(dir) ? ' collapsed' : '');
+  // Build a recursive folder tree from a flat scene list.
+  // Each node: { path, name, children: Map<segName, node>, scenes: [] }
+  function _buildFolderTree(scenes) {
+    const root = { path: '', name: '', children: new Map(), scenes: [] };
+    scenes.forEach(s => {
+      const parts = s.asset.path.replace(/\\/g, '/').split('/');
+      parts.pop(); // strip filename
+      let node = root;
+      parts.forEach((seg, i) => {
+        if (!node.children.has(seg)) {
+          const fullPath = parts.slice(0, i + 1).join('/');
+          node.children.set(seg, { path: fullPath, name: seg, children: new Map(), scenes: [] });
+        }
+        node = node.children.get(seg);
+      });
+      node.scenes.push(s);
+    });
+    return root;
+  }
 
+  function _countScenesInNode(node) {
+    let n = node.scenes.length;
+    for (const c of node.children.values()) n += _countScenesInNode(c);
+    return n;
+  }
+
+  function _collectAllFolderPaths(node, acc = []) {
+    for (const c of node.children.values()) {
+      acc.push(c.path);
+      _collectAllFolderPaths(c, acc);
+    }
+    return acc;
+  }
+
+  function _persistCollapsed() {
+    localStorage.setItem('storyboard_collapsedFolders', JSON.stringify([..._collapsedFolders]));
+  }
+
+  function _collapseAllFolders() {
+    _collectAllFolderPaths(_buildFolderTree(_lastFilteredScenes)).forEach(p => _collapsedFolders.add(p));
+    _persistCollapsed();
+    _renderList(_lastFilteredScenes);
+  }
+
+  function _expandAllFolders() {
+    _collapsedFolders.clear();
+    _persistCollapsed();
+    _renderList(_lastFilteredScenes);
+  }
+
+  // Recursively render one folder node into frag.
+  function _renderFolderNode(node, frag, visibleCols, depth) {
+    // Direct scenes at this level
+    node.scenes.forEach(scene => frag.appendChild(_buildListRow(scene, scene.asset.filename, visibleCols, depth)));
+    // Sorted subfolders
+    const kids = [...node.children.entries()]
+      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+    kids.forEach(([, child]) => {
+      frag.appendChild(_buildFolderRow(child, depth));
+      if (!_collapsedFolders.has(child.path)) {
+        _renderFolderNode(child, frag, visibleCols, depth + 1);
+      }
+    });
+  }
+
+  function _buildFolderRow(node, depth) {
+    const row = document.createElement('div');
+    row.className = 'list-folder-row' + (_collapsedFolders.has(node.path) ? ' collapsed' : '');
+    row.style.paddingLeft = (10 + depth * 20) + 'px';
+
+    const total = _countScenesInNode(node);
     const icon  = document.createElement('span'); icon.className = 'list-folder-icon'; icon.textContent = '📁';
-    const name  = document.createElement('span'); name.className = 'list-folder-name'; name.textContent = dir;
-    const cnt   = document.createElement('span'); cnt.className  = 'list-folder-count'; cnt.textContent = `${count} scene${count !== 1 ? 's' : ''}`;
+    const name  = document.createElement('span'); name.className = 'list-folder-name'; name.textContent = node.name;
+    const cnt   = document.createElement('span'); cnt.className  = 'list-folder-count'; cnt.textContent = `${total} scene${total !== 1 ? 's' : ''}`;
     const arrow = document.createElement('span'); arrow.className = 'list-folder-arrow'; arrow.textContent = '▾';
 
     row.append(icon, name, cnt, arrow);
     row.addEventListener('click', () => {
-      if (_collapsedFolders.has(dir)) _collapsedFolders.delete(dir);
-      else _collapsedFolders.add(dir);
-      localStorage.setItem('storyboard_collapsedFolders', JSON.stringify([..._collapsedFolders]));
+      if (_collapsedFolders.has(node.path)) _collapsedFolders.delete(node.path);
+      else _collapsedFolders.add(node.path);
+      _persistCollapsed();
       _renderList(_lastFilteredScenes);
     });
     return row;
   }
 
-  function _buildListRow(scene, pathLabel, visibleCols) {
+  function _buildListRow(scene, pathLabel, visibleCols, depth = 0) {
     const row = document.createElement('div');
     row.className = 'list-row';
     row.dataset.sceneId = scene.id;
@@ -2282,6 +2341,7 @@ App.Grid = (function() {
     pathCell.className = 'list-cell primary';
     pathCell.textContent = pathLabel;
     pathCell.title = scene.asset.path;
+    if (depth > 0) pathCell.style.paddingLeft = (depth * 20) + 'px';
 
     row.append(thumbWrap, dot, pathCell);
 

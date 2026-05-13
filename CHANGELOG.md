@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-05-13 — Collapse/Expand All in list view; recursive folder hierarchy
+
+- Moved "Collapse All" and "Expand All" buttons out of the grid-only header zone; they now live in a `.tree-btn-group` div immediately right of the view switcher and are visible in both grid and list views (hidden only in focus view)
+- Buttons are view-aware: in list mode they expand/collapse filesystem folders; in grid mode they expand/collapse sequence groups as before
+- List view now builds a full recursive folder tree from `asset.path` segments (`_buildFolderTree`) instead of grouping by the flat `dirOf()` result — any depth of subdirectory nesting is correctly rendered
+- Folder rows indent by `depth × 20 px` (left padding); scene-row path cells indent by the same amount, keeping thumbnails flush-left
+- Scene-count badge on each folder row shows the total recursive count of all scenes beneath it
+- Collapse state is per full folder path (e.g. `chapter1/act1`); collapsing a parent implicitly hides all descendants without touching their individual collapse state
+- Added `_renderFolderNode`, `_buildFolderTree`, `_countScenesInNode`, `_collectAllFolderPaths`, `_persistCollapsed`, `_collapseAllFolders`, `_expandAllFolders` helpers inside `App.Grid`
+
 ## 2026-05-13 — Phase 4: Branch-aware focus view and Variables panel
 
 - Focus view now detects when the selected scene is inside a branch and switches to a horizontal lane-strip layout: each lane is rendered as a labelled row of `focus-strip-cell` thumbnails (96 px wide, current cell 144 px with accent outline); arrow keys navigate within the active lane
