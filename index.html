@@ -388,6 +388,81 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .list-tags{display:flex;gap:3px;overflow:hidden;align-items:center}
 .list-tag{background:var(--bg-3);border-radius:10px;padding:1px 6px;font-size:10px;white-space:nowrap;flex-shrink:0}
 
+/* ── GRID VIEW (tree rendering) ────────────────────────── */
+#image-grid-inner.grid-view{display:flex;flex-direction:column;gap:8px;padding:8px}
+.scene-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
+
+/* Groups */
+.seq-group{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-1);overflow:hidden}
+.seq-group-header{
+  display:flex;align-items:center;gap:8px;padding:6px 10px;
+  cursor:grab;background:var(--bg-2);user-select:none;border-bottom:1px solid var(--border);
+}
+.seq-group-header:active{cursor:grabbing}
+.seq-group-arrow{font-size:10px;transition:transform .15s;cursor:pointer}
+.seq-group.collapsed .seq-group-arrow{transform:rotate(-90deg)}
+.seq-group-name{flex:1;font-weight:600;font-size:13px;cursor:pointer}
+.seq-group-name-input{flex:1;font-size:13px;font-weight:600;background:var(--bg-0);border:1px solid var(--accent);border-radius:3px;padding:1px 4px;color:var(--text-0)}
+.seq-group-count{font-size:11px;color:var(--text-2)}
+.seq-group-body{padding:8px;display:flex;flex-direction:column;gap:8px}
+.seq-group.collapsed .seq-group-body{display:none}
+.seq-group-preview{display:none;align-items:center;gap:10px;padding:8px 10px}
+.seq-group.collapsed .seq-group-preview{display:flex}
+.seq-group-thumb{width:60px;height:38px;object-fit:cover;border-radius:2px;flex-shrink:0}
+.seq-group-badge{
+  font-size:12px;font-weight:600;background:var(--bg-3);border:1px solid var(--border);
+  border-radius:12px;padding:3px 10px;color:var(--text-1);white-space:nowrap;
+}
+
+/* Sequence node cards (action / branch_split / rejoin) */
+.seq-node{
+  display:flex;align-items:center;gap:10px;padding:8px 14px;
+  border-radius:var(--radius);border:1px solid var(--border);
+  font-size:12px;cursor:pointer;background:var(--bg-1);
+}
+.seq-node:hover{background:var(--bg-2)}
+.seq-node-icon{font-size:17px;flex-shrink:0}
+.seq-node-label{flex:1;font-weight:500}
+.seq-node-sub{font-size:11px;color:var(--text-2);margin-top:1px}
+.seq-node.node-action{border-color:#5b9fd4}
+.seq-node.node-action .seq-node-icon{color:#5b9fd4}
+.seq-node.node-branch{border-color:var(--accent)}
+.seq-node.node-branch .seq-node-icon{color:var(--accent)}
+.seq-node.node-rejoin{border-color:var(--green)}
+.seq-node.node-rejoin .seq-node-icon{color:var(--green)}
+
+/* Branch sections (lanes side-by-side) */
+.seq-branch-section{display:flex;gap:6px;align-items:flex-start}
+.seq-lane{
+  flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;
+  border:1px solid var(--border);border-radius:var(--radius);
+  padding:6px;background:var(--bg-0);
+}
+.seq-lane-header{
+  font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--accent);padding:2px 4px;border-bottom:1px solid var(--border);
+  margin-bottom:2px;
+}
+.seq-lane-empty{font-size:11px;color:var(--text-2);padding:8px 4px;font-style:italic}
+
+/* Context menu */
+#ctx-menu{
+  position:fixed;z-index:10000;background:var(--bg-2);border:1px solid var(--border);
+  border-radius:var(--radius);padding:4px 0;min-width:190px;display:none;
+  box-shadow:0 6px 16px rgba(0,0,0,.4);
+}
+#ctx-menu.open{display:block}
+.ctx-item{padding:6px 14px;font-size:12px;cursor:pointer;color:var(--text-1);white-space:nowrap}
+.ctx-item:hover{background:var(--bg-3);color:var(--text-0)}
+.ctx-item.danger{color:var(--red)}
+.ctx-item.danger:hover{background:var(--red);color:#fff}
+.ctx-item.disabled{opacity:.4;pointer-events:none}
+.ctx-sep{height:1px;background:var(--border);margin:4px 0}
+
+/* Grid-mode-only toolbar buttons */
+.grid-only{display:none}
+#app-shell.view-grid .grid-only{display:inline-flex}
+
 /* ── SCROLLBAR ─────────────────────────────────────────── */
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track{background:var(--bg-2);border-radius:5px}
@@ -436,6 +511,9 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       <div class="stat-chip" title="Included scenes"><span class="dot dot-green"></span><span id="stat-included">0</span> included</div>
       <div class="stat-chip" title="Maybe scenes"><span class="dot dot-yellow"></span><span id="stat-maybe">0</span> maybe</div>
       <div class="stat-chip" title="Untagged scenes"><span class="dot dot-grey"></span><span id="stat-untagged">0</span> untagged</div>
+      <button class="grid-only" id="btn-collapse-all" title="Collapse all groups">⊟ All</button>
+      <button class="grid-only" id="btn-expand-all"   title="Expand all groups">⊞ All</button>
+      <button class="grid-only" id="btn-add-group"    title="Add group">+ Group</button>
       <button id="btn-batch">Batch Edit</button>
       <button id="btn-export">Export</button>
       <button id="btn-chars">Characters</button>
@@ -482,13 +560,6 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       <div class="toggle-row">
         <input type="checkbox" id="filter-tagged-only" data-filter-key="taggedOnly">
         <label for="filter-tagged-only" style="margin:0;font-size:12px">Tagged only</label>
-      </div>
-    </div>
-    <div class="sidebar-section">
-      <h4>Select Mode</h4>
-      <div class="toggle-row">
-        <input type="checkbox" id="toggle-select-mode">
-        <label for="toggle-select-mode" style="margin:0;font-size:12px">Enable multi-select</label>
       </div>
     </div>
     <div class="sidebar-section" id="sidebar-project-section">
@@ -1251,8 +1322,10 @@ App.LazyLoader = (function() {
 App.DnD = (function() {
   let _srcId = null;
 
+  function _eid(el) { return el.dataset.elementId || el.dataset.sceneId; }
+
   function onDragStart(e) {
-    _srcId = e.currentTarget.dataset.sceneId;
+    _srcId = _eid(e.currentTarget);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', _srcId);
     e.currentTarget.classList.add('dragging');
@@ -1261,12 +1334,12 @@ App.DnD = (function() {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const t = e.currentTarget;
-    if (t.dataset.sceneId !== _srcId) t.classList.add('drag-over');
+    if (_eid(t) !== _srcId) t.classList.add('drag-over');
   }
   function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
   function onDrop(e) {
     e.preventDefault();
-    const targetId = e.currentTarget.dataset.sceneId;
+    const targetId = _eid(e.currentTarget);
     e.currentTarget.classList.remove('drag-over');
     if (!targetId || targetId === _srcId) return;
     App.State.mutateProject(project => {
@@ -1283,12 +1356,91 @@ App.DnD = (function() {
 })();
 
 // ═══════════════════════════════════════════════════════
+// CONTEXT MENU
+// ═══════════════════════════════════════════════════════
+App.CtxMenu = (function() {
+  let _el, _targetId;
+
+  function init() {
+    _el = document.getElementById('ctx-menu');
+    document.addEventListener('click', () => close());
+    document.addEventListener('contextmenu', () => close());
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+  }
+
+  function show(x, y, targetId) {
+    _targetId = targetId;
+    _el.innerHTML = '';
+    _build(targetId);
+    _el.style.left = x + 'px';
+    _el.style.top  = y + 'px';
+    _el.classList.add('open');
+    requestAnimationFrame(() => {
+      const r = _el.getBoundingClientRect();
+      if (r.right  > window.innerWidth)  _el.style.left = (x - r.width)  + 'px';
+      if (r.bottom > window.innerHeight) _el.style.top  = (y - r.height) + 'px';
+    });
+  }
+
+  function close() { _el?.classList.remove('open'); }
+
+  function _build(targetId) {
+    const project = App.State.get('project');
+    if (!project) return;
+    const found   = App.Seq.findById(project.sequence, targetId);
+    const el      = found?.el;
+    const isGroup = el?.type === 'group';
+    const isNode  = el?.type === 'action' || el?.type === 'branch_split' || el?.type === 'rejoin';
+    const sel     = App.State.get('selectedCards');
+
+    if (sel.size > 1 && sel.has(targetId)) {
+      _item('Create group from selection', () => App.Grid.createGroupFromSelection());
+    }
+    _item('Add group here', () => App.Grid.addGroupAfter(targetId));
+
+    if (isGroup) {
+      _item('Rename group', () => App.Grid.renameGroup(targetId));
+      _item('Ungroup',      () => App.Grid.ungroup(targetId));
+    }
+
+    if (!isGroup) {
+      _item('Duplicate', () => App.Grid.duplicateElement(targetId));
+    }
+
+    _sep();
+    _item('Insert action node',   () => App.Grid.insertNode('action',       targetId));
+    _item('Insert branch split',  () => App.Grid.insertNode('branch_split', targetId));
+    _item('Insert rejoin',        () => App.Grid.insertNode('rejoin',        targetId));
+
+    _sep();
+    _item('Delete', () => App.Grid.deleteElement(targetId), true);
+  }
+
+  function _item(label, fn, danger) {
+    const d = document.createElement('div');
+    d.className = 'ctx-item' + (danger ? ' danger' : '');
+    d.textContent = label;
+    d.addEventListener('click', e => { e.stopPropagation(); fn(); close(); });
+    _el.appendChild(d);
+  }
+
+  function _sep() {
+    const d = document.createElement('div');
+    d.className = 'ctx-sep';
+    _el.appendChild(d);
+  }
+
+  return { init, show, close };
+})();
+
+// ═══════════════════════════════════════════════════════
 // IMAGE GRID
 // ═══════════════════════════════════════════════════════
 App.Grid = (function() {
   let _inner;
   let _initialized = false;
   let _lastFilteredScenes = [];
+  let _lastClickedId = null;
 
   // ── List column definitions ───────────────────────────
   const _LIST_COL_DEFS = [
@@ -1328,6 +1480,8 @@ App.Grid = (function() {
       App.State.subscribe('projectChange', render);
       App.State.subscribe('filterChange', render);
       App.State.subscribe('viewMode', render);
+      // Set initial view class on app-shell
+      document.getElementById('app-shell').classList.add('view-' + App.State.get('viewMode'));
       // Close column picker when clicking outside
       document.addEventListener('click', e => {
         if (!_pickerOpen) return;
@@ -1337,6 +1491,11 @@ App.Grid = (function() {
           _pickerOpen = false;
         }
       });
+      // Grid-only header buttons
+      document.getElementById('btn-collapse-all')?.addEventListener('click', collapseAll);
+      document.getElementById('btn-expand-all')?.addEventListener('click', expandAll);
+      document.getElementById('btn-add-group')?.addEventListener('click', () => addGroupAfter(null));
+      App.CtxMenu.init();
       _initialized = true;
     }
   }
@@ -1356,10 +1515,26 @@ App.Grid = (function() {
   function render() {
     if (!_inner) return;
     const project = App.State.get('project');
+    const mode = App.State.get('viewMode');
+
     if (!project) {
       _inner.className = '';
       _inner.innerHTML = '<div id="empty-state">Open a project to begin.</div>';
       _resetGridContainer();
+      return;
+    }
+
+    if (mode === 'grid') {
+      const allScenes = App.Seq.flatScenes(project.sequence);
+      _lastFilteredScenes = allScenes;
+      App.State.set('filteredCount', allScenes.length);
+      if (project.sequence.length === 0) {
+        _inner.className = '';
+        _inner.innerHTML = '<div id="empty-state">No scenes yet — open a folder with images.</div>';
+        _resetGridContainer();
+        return;
+      }
+      _renderGridView(project.sequence);
       return;
     }
 
@@ -1374,10 +1549,8 @@ App.Grid = (function() {
       return;
     }
 
-    const mode = App.State.get('viewMode');
     if (mode === 'focus') _renderFocus(scenes);
-    else if (mode === 'list') _renderList(scenes);
-    else _renderGrid(scenes);
+    else _renderList(scenes);
   }
 
   function _resetGridContainer() {
@@ -1386,67 +1559,108 @@ App.Grid = (function() {
     g.style.padding = '';
   }
 
-  // ── Grid view ───────────────────────────────────────────
-  function _renderGrid(scenes) {
+  // ── Grid view (tree rendering) ──────────────────────────
+  function _renderGridView(sequence) {
     document.getElementById('image-grid').classList.remove('focus-mode');
     document.getElementById('image-grid').style.padding = '';
-    _inner.className = '';
+    _inner.className = 'grid-view';
     _inner.innerHTML = '';
-
-    const selectedId = App.State.get('selectedSceneId');
-    const selectMode = App.State.get('selectMode');
-    const selectedCards = App.State.get('selectedCards');
-
-    const frag = document.createDocumentFragment();
-    for (const scene of scenes) {
-      const card = _buildCard(scene, selectedId, selectMode, selectedCards);
-      frag.appendChild(card);
-      App.LazyLoader.observe(card);
-    }
-    _inner.appendChild(frag);
+    _renderSequenceInto(sequence, _inner);
   }
 
-  function _buildCard(scene, selectedId, selectMode, selectedCards) {
+  function _renderSequenceInto(seq, container) {
+    const frag = document.createDocumentFragment();
+    const pendingScenes = [];
+    const skipIds = new Set();
+
+    function flushScenes() {
+      if (!pendingScenes.length) return;
+      const grid = document.createElement('div');
+      grid.className = 'scene-grid';
+      pendingScenes.forEach(scene => {
+        const card = _buildCard(scene);
+        grid.appendChild(card);
+        App.LazyLoader.observe(card);
+      });
+      frag.appendChild(grid);
+      pendingScenes.length = 0;
+    }
+
+    for (let i = 0; i < seq.length; i++) {
+      const el = seq[i];
+      if (skipIds.has(el.id)) continue;
+
+      if (el.type === 'scene') {
+        pendingScenes.push(el);
+      } else if (el.type === 'group') {
+        flushScenes();
+        frag.appendChild(_buildGroup(el));
+      } else if (el.type === 'branch_split') {
+        flushScenes();
+        let rejoin = null;
+        for (let j = i + 1; j < seq.length; j++) {
+          if (seq[j].type === 'rejoin' && seq[j].branchSplitId === el.id) {
+            rejoin = seq[j];
+            skipIds.add(rejoin.id);
+            break;
+          }
+        }
+        frag.appendChild(_buildNodeCard(el));
+        frag.appendChild(_buildBranchSection(el));
+        if (rejoin) frag.appendChild(_buildNodeCard(rejoin));
+      } else if (el.type === 'action' || el.type === 'rejoin') {
+        flushScenes();
+        frag.appendChild(_buildNodeCard(el));
+      }
+    }
+    flushScenes();
+    container.appendChild(frag);
+  }
+
+  function _buildCard(scene) {
     const card = document.createElement('div');
-    card.className = 'scene-card' + (selectMode ? ' select-mode' : '');
-    card.dataset.sceneId = scene.id;
+    card.className = 'scene-card';
+    card.dataset.sceneId  = scene.id;
+    card.dataset.elementId = scene.id;
     card.dataset.status = scene.status || 'untagged';
-    card.draggable = !selectMode;
-    if (scene.id === selectedId || selectedCards.has(scene.id)) card.classList.add('selected');
+    card.draggable = true;
+    if (App.State.get('selectedCards').has(scene.id)) card.classList.add('selected');
+    if (scene.id === App.State.get('selectedSceneId'))  card.classList.add('selected');
 
     const img = document.createElement('img');
     img.alt = scene.asset.path;
-
     const label = document.createElement('div');
     label.className = 'card-label';
     label.textContent = scene.asset.path;
-
-    const check = document.createElement('input');
-    check.type = 'checkbox';
-    check.className = 'card-check';
-    check.checked = selectedCards.has(scene.id);
-    check.addEventListener('change', e => {
-      e.stopPropagation();
-      if (e.target.checked) App.State.get('selectedCards').add(scene.id);
-      else App.State.get('selectedCards').delete(scene.id);
-      App.Filters.updateBulkBar();
-    });
-
-    card.appendChild(check);
     card.appendChild(img);
     card.appendChild(label);
 
     card.addEventListener('click', e => {
-      if (e.target === check) return;
-      if (App.State.get('selectMode')) {
-        const sc = App.State.get('selectedCards');
+      const sc = App.State.get('selectedCards');
+      if (e.ctrlKey || e.metaKey) {
         if (sc.has(scene.id)) sc.delete(scene.id); else sc.add(scene.id);
-        check.checked = sc.has(scene.id);
         card.classList.toggle('selected', sc.has(scene.id));
+        _lastClickedId = scene.id;
+        App.Filters.updateBulkBar();
+      } else if (e.shiftKey && _lastClickedId) {
+        const scenes = App.Seq.flatScenes(App.State.get('project').sequence);
+        const a = scenes.findIndex(s => s.id === _lastClickedId);
+        const b = scenes.findIndex(s => s.id === scene.id);
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = [Math.min(a, b), Math.max(a, b)];
+          scenes.slice(lo, hi + 1).forEach(s => sc.add(s.id));
+          render();
+        }
         App.Filters.updateBulkBar();
       } else {
+        _lastClickedId = scene.id;
         App.Editor.open(scene.id);
       }
+    });
+
+    card.addEventListener('contextmenu', e => {
+      e.preventDefault(); e.stopPropagation();
+      App.CtxMenu.show(e.clientX, e.clientY, scene.id);
     });
 
     card.addEventListener('dragstart', App.DnD.onDragStart);
@@ -1456,6 +1670,260 @@ App.Grid = (function() {
     card.addEventListener('dragend',   App.DnD.onDragEnd);
 
     return card;
+  }
+
+  function _buildGroup(el) {
+    const group = document.createElement('div');
+    group.className = 'seq-group' + (el.collapsed ? ' collapsed' : '');
+    group.dataset.elementId = el.id;
+
+    const sceneCount = App.Seq.flatScenes(el.sequence || []).length;
+
+    const header = document.createElement('div');
+    header.className = 'seq-group-header';
+
+    const arrow = document.createElement('span');
+    arrow.className = 'seq-group-arrow';
+    arrow.textContent = '▾';
+    arrow.addEventListener('click', e => {
+      e.stopPropagation();
+      App.State.mutateProject(project => {
+        const found = App.Seq.findById(project.sequence, el.id);
+        if (found) found.el.collapsed = !found.el.collapsed;
+      });
+    });
+
+    const name = document.createElement('span');
+    name.className = 'seq-group-name';
+    name.textContent = el.name || 'Group';
+    name.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      App.Grid.renameGroup(el.id);
+    });
+
+    const count = document.createElement('span');
+    count.className = 'seq-group-count';
+    count.textContent = `${sceneCount} scene${sceneCount !== 1 ? 's' : ''}`;
+
+    header.appendChild(arrow);
+    header.appendChild(name);
+    header.appendChild(count);
+    header.addEventListener('contextmenu', e => {
+      e.preventDefault(); e.stopPropagation();
+      App.CtxMenu.show(e.clientX, e.clientY, el.id);
+    });
+    group.appendChild(header);
+
+    // Collapsed preview: first thumb → count badge → last thumb
+    const preview = document.createElement('div');
+    preview.className = 'seq-group-preview';
+    const scenes = App.Seq.flatScenes(el.sequence || []);
+    if (scenes.length > 0) {
+      preview.appendChild(_makeGroupThumb(scenes[0]));
+      const badge = document.createElement('span');
+      badge.className = 'seq-group-badge';
+      badge.textContent = `${sceneCount} scenes`;
+      preview.appendChild(badge);
+      if (scenes.length > 1) preview.appendChild(_makeGroupThumb(scenes[scenes.length - 1]));
+    }
+    group.appendChild(preview);
+
+    const body = document.createElement('div');
+    body.className = 'seq-group-body';
+    _renderSequenceInto(el.sequence || [], body);
+    group.appendChild(body);
+
+    return group;
+  }
+
+  function _makeGroupThumb(scene) {
+    const img = document.createElement('img');
+    img.className = 'seq-group-thumb';
+    img.alt = scene.asset.path;
+    const cache = App.State.get('thumbnailCache');
+    const assetPath = scene.asset.path;
+    if (cache.has(assetPath)) {
+      img.src = cache.get(assetPath);
+    } else {
+      const handle = App.State.get('fileHandleCache').get(assetPath);
+      if (handle) {
+        handle.getFile().then(f => {
+          const url = URL.createObjectURL(f);
+          cache.set(assetPath, url);
+          img.src = url;
+        }).catch(() => {});
+      }
+    }
+    return img;
+  }
+
+  function _buildNodeCard(el) {
+    const card = document.createElement('div');
+    const typeClass = el.type === 'action' ? 'node-action' : el.type === 'branch_split' ? 'node-branch' : 'node-rejoin';
+    card.className = `seq-node ${typeClass}`;
+    card.dataset.elementId = el.id;
+
+    const icon = document.createElement('span');
+    icon.className = 'seq-node-icon';
+    icon.textContent = el.type === 'action' ? '⚡' : el.type === 'branch_split' ? '⑂' : '⑃';
+
+    const info = document.createElement('div');
+    info.style.flex = '1';
+    const lbl = document.createElement('div');
+    lbl.className = 'seq-node-label';
+    lbl.textContent = el.type === 'action'       ? (el.label || 'Action')
+                    : el.type === 'branch_split'  ? (el.label || `Branch (${el.lanes?.length || 0} lanes)`)
+                    : (el.label || 'Rejoin');
+    info.appendChild(lbl);
+
+    if (el.type === 'branch_split' && el.lanes?.length) {
+      const sub = document.createElement('div');
+      sub.className = 'seq-node-sub';
+      sub.textContent = el.lanes.map((l, i) => l.label || `Lane ${i + 1}`).join(' · ');
+      info.appendChild(sub);
+    }
+
+    card.appendChild(icon);
+    card.appendChild(info);
+    card.addEventListener('contextmenu', e => {
+      e.preventDefault(); e.stopPropagation();
+      App.CtxMenu.show(e.clientX, e.clientY, el.id);
+    });
+    return card;
+  }
+
+  function _buildBranchSection(branchEl) {
+    const section = document.createElement('div');
+    section.className = 'seq-branch-section';
+    (branchEl.lanes || []).forEach((lane, i) => {
+      const laneDiv = document.createElement('div');
+      laneDiv.className = 'seq-lane';
+      const laneHeader = document.createElement('div');
+      laneHeader.className = 'seq-lane-header';
+      laneHeader.textContent = lane.label || `Lane ${i + 1}`;
+      laneDiv.appendChild(laneHeader);
+      if (!lane.sequence || lane.sequence.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'seq-lane-empty';
+        empty.textContent = 'No scenes in this lane';
+        laneDiv.appendChild(empty);
+      } else {
+        _renderSequenceInto(lane.sequence, laneDiv);
+      }
+      section.appendChild(laneDiv);
+    });
+    return section;
+  }
+
+  // ── Public API: group / node operations ─────────────────
+  function createGroupFromSelection() {
+    const sel = App.State.get('selectedCards');
+    if (sel.size < 2) return;
+    const project = App.State.get('project');
+    const orderedIds = [];
+    App.Seq.walk(project.sequence, el => { if (sel.has(el.id)) orderedIds.push(el.id); });
+    if (!orderedIds.length) return;
+    const firstRef = App.Seq.findById(project.sequence, orderedIds[0]);
+    if (!firstRef) return;
+    // Anchor: element immediately before the first selected, in its parent array
+    const beforeEl = firstRef.index > 0 ? firstRef.arr[firstRef.index - 1] : null;
+    const insertAfterId = beforeEl?.id ?? null;
+    const parentArr = firstRef.arr;
+    App.State.mutateProject(project => {
+      const elements = orderedIds.map(id => App.Seq.findById(project.sequence, id)?.el).filter(Boolean);
+      orderedIds.forEach(id => App.Seq.remove(project.sequence, id));
+      const group = { type:'group', id:crypto.randomUUID(), name:'New Group', collapsed:false, sequence:elements };
+      if (insertAfterId && App.Seq.findById(project.sequence, insertAfterId)) {
+        App.Seq.insertAfter(project.sequence, group, insertAfterId);
+      } else {
+        parentArr.push(group);
+      }
+    });
+    App.State.get('selectedCards').clear();
+    App.Filters.updateBulkBar();
+  }
+
+  function addGroupAfter(afterId) {
+    const name = prompt('Group name:', 'New Group');
+    if (!name) return;
+    const group = { type:'group', id:crypto.randomUUID(), name, collapsed:false, sequence:[] };
+    App.State.mutateProject(project => { App.Seq.insertAfter(project.sequence, group, afterId); });
+  }
+
+  function renameGroup(groupId) {
+    const project = App.State.get('project');
+    const found = App.Seq.findById(project.sequence, groupId);
+    if (!found || found.el.type !== 'group') return;
+    const name = prompt('Group name:', found.el.name || '');
+    if (name === null) return;
+    App.State.mutateProject(project => {
+      const f = App.Seq.findById(project.sequence, groupId);
+      if (f) f.el.name = name;
+    });
+  }
+
+  function ungroup(groupId) {
+    App.State.mutateProject(project => {
+      const found = App.Seq.findById(project.sequence, groupId);
+      if (!found || found.el.type !== 'group') return;
+      found.arr.splice(found.index, 1, ...(found.el.sequence || []));
+    });
+  }
+
+  function duplicateElement(id) {
+    App.State.mutateProject(project => {
+      const found = App.Seq.findById(project.sequence, id);
+      if (!found) return;
+      const copy = JSON.parse(JSON.stringify(found.el));
+      _assignNewIds(copy);
+      App.Seq.insertAfter(project.sequence, copy, id);
+    });
+  }
+
+  function _assignNewIds(el) {
+    el.id = crypto.randomUUID();
+    if (el.type === 'group' && Array.isArray(el.sequence))
+      el.sequence.forEach(c => _assignNewIds(c));
+    if (el.type === 'branch_split' && Array.isArray(el.lanes))
+      el.lanes.forEach(lane => {
+        lane.id = crypto.randomUUID();
+        if (Array.isArray(lane.sequence)) lane.sequence.forEach(c => _assignNewIds(c));
+      });
+  }
+
+  function insertNode(type, afterId) {
+    const node = { type, id:crypto.randomUUID(), label:'' };
+    if (type === 'branch_split') {
+      node.lanes = [
+        { id:crypto.randomUUID(), label:'Lane A', condition:null, sequence:[] },
+        { id:crypto.randomUUID(), label:'Lane B', condition:null, sequence:[] },
+      ];
+    } else if (type === 'rejoin') {
+      node.branchSplitId = null;
+      node.terminatedLaneIds = [];
+    } else if (type === 'action') {
+      node.choices = [];
+    }
+    App.State.mutateProject(project => { App.Seq.insertAfter(project.sequence, node, afterId); });
+  }
+
+  function deleteElement(id) {
+    if (!confirm('Delete this element? This cannot be undone.')) return;
+    App.State.mutateProject(project => { App.Seq.remove(project.sequence, id); });
+    App.State.get('selectedCards').delete(id);
+    App.Filters.updateBulkBar();
+  }
+
+  function collapseAll() {
+    App.State.mutateProject(project => {
+      App.Seq.walk(project.sequence, el => { if (el.type === 'group') el.collapsed = true; });
+    });
+  }
+
+  function expandAll() {
+    App.State.mutateProject(project => {
+      App.Seq.walk(project.sequence, el => { if (el.type === 'group') el.collapsed = false; });
+    });
   }
 
   // ── Focus view ──────────────────────────────────────────
@@ -1704,18 +2172,19 @@ App.Grid = (function() {
 
   // ── refreshCard ─────────────────────────────────────────
   function refreshCard(sceneId) {
-    const scene = App.State.get('_sceneIndex').get(sceneId);
-    if (!scene) return;
     const mode = App.State.get('viewMode');
     if (mode === 'focus') { render(); return; }
     const el = _inner?.querySelector(`[data-scene-id="${sceneId}"]`);
     if (!el) return;
+    const scene = App.State.get('_sceneIndex').get(sceneId);
+    if (!scene) return;
     const status = scene.status || 'untagged';
     el.dataset.status = status;
     if (mode === 'list') {
       if (el.children[1]) el.children[1].className = `dot dot-${_statusColor(status)}`;
     } else {
-      el.classList.toggle('selected', sceneId === App.State.get('selectedSceneId'));
+      el.classList.toggle('selected',
+        App.State.get('selectedCards').has(sceneId) || sceneId === App.State.get('selectedSceneId'));
     }
   }
 
@@ -1723,7 +2192,7 @@ App.Grid = (function() {
   function setViewMode(mode) {
     const prev = App.State.get('viewMode');
     if (mode === prev) return;
-    if (prev === 'grid') {
+    if (mode !== 'grid') {
       App.State.get('selectedCards').clear();
       document.getElementById('bulk-bar').classList.remove('visible');
     }
@@ -1731,11 +2200,9 @@ App.Grid = (function() {
     localStorage.setItem('storyboard_viewMode', mode);
     document.querySelectorAll('.view-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.view === mode));
-    const smCheck = document.getElementById('toggle-select-mode');
-    if (smCheck) {
-      smCheck.disabled = mode !== 'grid';
-      smCheck.title = mode !== 'grid' ? 'Only available in grid view' : '';
-    }
+    const shell = document.getElementById('app-shell');
+    shell.classList.remove('view-grid', 'view-list', 'view-focus');
+    shell.classList.add('view-' + mode);
     if (mode === 'focus') {
       const selId = App.State.get('selectedSceneId') || _lastFilteredScenes[0]?.id;
       if (selId) App.Editor.open(selId);
@@ -1754,7 +2221,11 @@ App.Grid = (function() {
     if (next) App.Editor.open(next.id);
   });
 
-  return { init, render, refreshCard, setViewMode };
+  return {
+    init, render, refreshCard, setViewMode,
+    createGroupFromSelection, addGroupAfter, renameGroup, ungroup,
+    duplicateElement, insertNode, deleteElement, collapseAll, expandAll,
+  };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -2370,16 +2841,9 @@ App.Filters = (function() {
 
     document.getElementById('btn-apply-filters')?.addEventListener('click', _applyFilters);
 
-    // Instant-apply toggles (unchanged behaviour)
+    // Instant-apply toggles
     document.getElementById('filter-show-excluded')?.addEventListener('change', _onInstant);
     document.getElementById('filter-tagged-only')?.addEventListener('change', _onInstant);
-
-    document.getElementById('toggle-select-mode')?.addEventListener('change', e => {
-      App.State.set('selectMode', e.target.checked);
-      App.State.get('selectedCards').clear();
-      App.Grid.render();
-      updateBulkBar();
-    });
   }
 
   function _markPending() {
@@ -2922,7 +3386,6 @@ document.getElementById('btn-home').addEventListener('click', () => {
     App.State.set('selectMode', false);
     App.State.get('fileHandleCache').clear();
     App.State.get('selectedCards').clear();
-    document.getElementById('toggle-select-mode').checked = false;
     document.getElementById('image-grid-inner').innerHTML = '<div id="empty-state">Open a project to begin.</div>';
     App.StartScreen.show();
   });
@@ -2957,5 +3420,6 @@ window.addEventListener('beforeunload', () => {
 });
 </script>
 <div id="list-col-picker"></div>
+<div id="ctx-menu"></div>
 </body>
 </html>
