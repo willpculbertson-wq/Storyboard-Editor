@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-05-12 — Phase 2: Grid view rebuilt as recursive sequence tree renderer
+
+- Replaced flat `_renderGrid(scenes)` with `_renderGridView(sequence)` — renders the full `project.sequence` tree without filtering; grid mode always shows the complete narrative structure
+- Added `_renderSequenceInto(seq, container)` — recursive renderer; batches consecutive scenes into `.scene-grid` wrappers; groups, nodes, and branch sections appear full-width between scene clusters
+- Added `_buildCard(scene)` — no checkbox; Ctrl/Cmd+click toggles selection, Shift+click range-selects, plain click opens editor, right-click opens context menu; card carries both `data-scene-id` (LazyLoader) and `data-element-id` (DnD/selection)
+- Added `_buildGroup(el)` — collapsible group with expand/collapse arrow, scene count badge, dblclick-to-rename, collapsed preview strip (first thumb → count badge → last thumb), recursive body
+- Added `_buildNodeCard(el)` — action / branch_split / rejoin cards with type-specific icons and right-click context menu
+- Added `_buildBranchSection(branchEl)` — N side-by-side `.seq-lane` columns, each recursively rendered; empty lanes show placeholder text
+- Added `_makeGroupThumb(scene)` — eager thumbnail loader for collapsed group previews (reads from cache or file handle)
+- Added `_assignNewIds(el)` — deep new-ID assignment used by `duplicateElement` to ensure all copied elements get fresh IDs
+- Added public API: `createGroupFromSelection`, `addGroupAfter`, `renameGroup`, `ungroup`, `duplicateElement`, `insertNode`, `deleteElement`, `collapseAll`, `expandAll`
+- `render()` routes grid mode to `_renderGridView` (no filter applied); focus and list modes continue to apply `_applyFilter` to flat scenes
+- `init()` wires `btn-collapse-all` / `btn-expand-all` / `btn-add-group` header buttons; calls `App.CtxMenu.init()`; sets initial `view-*` class on `#app-shell`
+- `setViewMode()` now adds/removes `view-grid` / `view-list` / `view-focus` class on `#app-shell` (drives `.grid-only` button visibility); clears selection when leaving grid mode
+- `App.DnD` updated to use `data-element-id` (falls back to `data-scene-id`) so groups and nodes are draggable alongside scene cards
+- Removed dangling `toggle-select-mode` references from the home button handler and `App.Filters.init()` — select-mode checkbox was removed from the sidebar in Phase 2 HTML prep
+
 ## 2026-05-12 — Phase 1: Sequence tree data model
 
 - Replaced flat `project.scenes[]` with a recursive `project.sequence[]` tree; project schema bumped to v1.1.0
