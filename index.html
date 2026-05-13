@@ -387,6 +387,17 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .list-narrative{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-2);font-style:italic}
 .list-tags{display:flex;gap:3px;overflow:hidden;align-items:center}
 .list-tag{background:var(--bg-3);border-radius:10px;padding:1px 6px;font-size:10px;white-space:nowrap;flex-shrink:0}
+.list-folder-row{
+  display:flex;align-items:center;gap:8px;padding:6px 10px;
+  border-bottom:1px solid var(--border);font-size:12px;
+  cursor:pointer;background:var(--bg-2);user-select:none;
+}
+.list-folder-row:hover{background:var(--bg-3)}
+.list-folder-icon{font-size:13px;flex-shrink:0}
+.list-folder-name{flex:1;font-weight:600;color:var(--text-0)}
+.list-folder-count{font-size:11px;color:var(--text-2)}
+.list-folder-arrow{font-size:9px;color:var(--text-2);transition:transform .15s}
+.list-folder-row.collapsed .list-folder-arrow{transform:rotate(-90deg)}
 
 /* ── GRID VIEW (tree rendering) ────────────────────────── */
 #image-grid-inner.grid-view{display:flex;flex-direction:column;gap:8px;padding:8px}
@@ -1441,6 +1452,8 @@ App.Grid = (function() {
   let _initialized = false;
   let _lastFilteredScenes = [];
   let _lastClickedId = null;
+  const _collapsedFolders = new Set(
+    JSON.parse(localStorage.getItem('storyboard_collapsedFolders') || '[]'));
 
   // ── List column definitions ───────────────────────────
   const _LIST_COL_DEFS = [
@@ -1996,24 +2009,21 @@ App.Grid = (function() {
 
     const frag = document.createDocumentFragment();
 
-    // Header
+    // ── Sticky header ─────────────────────────────────────
     const header = document.createElement('div');
     header.className = 'list-header';
-
     ['', '', 'Path'].forEach(text => {
       const cell = document.createElement('span');
       cell.className = 'list-header-cell pinned';
       cell.textContent = text;
       header.appendChild(cell);
     });
-
     visibleCols.forEach(col => {
       const cell = document.createElement('span');
       cell.className = 'list-header-cell';
       cell.textContent = col.label;
       cell.draggable = true;
       cell.dataset.colId = col.id;
-
       cell.addEventListener('dragstart', e => {
         e.dataTransfer.setData('text/plain', col.id);
         e.dataTransfer.effectAllowed = 'move';
@@ -2037,89 +2047,125 @@ App.Grid = (function() {
       });
       header.appendChild(cell);
     });
-
     const pickerBtn = document.createElement('span');
     pickerBtn.className = 'list-header-cell picker-btn';
     pickerBtn.textContent = '⊞';
     pickerBtn.title = 'Choose columns';
-    pickerBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      _toggleColPicker(pickerBtn);
-    });
+    pickerBtn.addEventListener('click', e => { e.stopPropagation(); _toggleColPicker(pickerBtn); });
     header.appendChild(pickerBtn);
     frag.appendChild(header);
 
-    // Rows
-    scenes.forEach(scene => {
-      const row = document.createElement('div');
-      row.className = 'list-row';
-      row.dataset.sceneId = scene.id;
-      row.dataset.status = scene.status || 'untagged';
+    // ── Group scenes by first directory segment ───────────
+    const rootScenes = scenes.filter(s => !App.Utils.dirOf(s.asset.path));
+    const byDir = new Map();
+    scenes.forEach(s => {
+      const dir = App.Utils.dirOf(s.asset.path);
+      if (!dir) return;
+      if (!byDir.has(dir)) byDir.set(dir, []);
+      byDir.get(dir).push(s);
+    });
+    const sortedDirs = [...byDir.keys()].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
-      const thumbWrap = document.createElement('div');
-      const img = document.createElement('img');
-      img.className = 'list-thumb'; img.alt = scene.asset.path;
-      thumbWrap.appendChild(img);
+    // Root-level scenes (no subdirectory)
+    rootScenes.forEach(scene => frag.appendChild(_buildListRow(scene, scene.asset.filename, visibleCols)));
 
-      const dot = document.createElement('div');
-      dot.className = `dot dot-${_statusColor(scene.status || 'untagged')}`;
-
-      const pathCell = document.createElement('div');
-      pathCell.className = 'list-cell primary';
-      pathCell.textContent = scene.asset.path;
-      pathCell.title = scene.asset.path;
-
-      row.append(thumbWrap, dot, pathCell);
-
-      visibleCols.forEach(col => {
-        if (col.id === 'tags') {
-          const div = document.createElement('div');
-          div.className = 'list-tags';
-          (scene.tags || []).slice(0, 3).forEach(t => {
-            const chip = document.createElement('span');
-            chip.className = 'list-tag'; chip.textContent = t;
-            div.appendChild(chip);
-          });
-          if ((scene.tags || []).length > 3) {
-            const more = document.createElement('span');
-            more.className = 'list-tag'; more.textContent = `+${scene.tags.length - 3}`;
-            div.appendChild(more);
-          }
-          row.appendChild(div);
-        } else if (col.id === 'narrative') {
-          const div = document.createElement('div');
-          div.className = 'list-narrative';
-          const t = scene.narrative || '';
-          div.textContent = t ? (t.length > 80 ? t.slice(0, 80) + '…' : t) : '—';
-          if (t.length > 80) div.title = t;
-          row.appendChild(div);
-        } else if (col.id === 'chars') {
-          const div = document.createElement('div');
-          div.className = 'list-cell';
-          const proj = App.State.get('project');
-          const names = (scene.characters || []).slice(0, 3).map(e => {
-            const c = (proj?.characters || []).find(ch => ch.id === e.characterId);
-            return c ? (c.alias || c.name) : '?';
-          });
-          if ((scene.characters || []).length > 3) names.push(`+${scene.characters.length - 3}`);
-          div.textContent = names.join(', ') || '—';
-          row.appendChild(div);
-        } else {
-          const val = col.id === 'rating' ? scene.contentRating
-                    : col.id === 'shot'   ? scene.shot?.type
-                    : col.id === 'trans'  ? scene.shot?.transition
-                    : col.id === 'mood'   ? scene.mood : null;
-          row.appendChild(_listCell(val));
-        }
-      });
-
-      row.appendChild(document.createElement('div')); // picker-btn column spacer
-      row.addEventListener('click', () => App.Editor.open(scene.id));
-      frag.appendChild(row);
-      App.LazyLoader.observe(row);
+    // Folder sections
+    sortedDirs.forEach(dir => {
+      const dirScenes = byDir.get(dir);
+      frag.appendChild(_buildFolderRow(dir, dirScenes.length));
+      if (!_collapsedFolders.has(dir)) {
+        dirScenes.forEach(scene => frag.appendChild(_buildListRow(scene, scene.asset.filename, visibleCols)));
+      }
     });
 
     _inner.appendChild(frag);
+    _inner.querySelectorAll('.list-row').forEach(row => App.LazyLoader.observe(row));
+  }
+
+  function _buildFolderRow(dir, count) {
+    const row = document.createElement('div');
+    row.className = 'list-folder-row' + (_collapsedFolders.has(dir) ? ' collapsed' : '');
+
+    const icon  = document.createElement('span'); icon.className = 'list-folder-icon'; icon.textContent = '📁';
+    const name  = document.createElement('span'); name.className = 'list-folder-name'; name.textContent = dir;
+    const cnt   = document.createElement('span'); cnt.className  = 'list-folder-count'; cnt.textContent = `${count} scene${count !== 1 ? 's' : ''}`;
+    const arrow = document.createElement('span'); arrow.className = 'list-folder-arrow'; arrow.textContent = '▾';
+
+    row.append(icon, name, cnt, arrow);
+    row.addEventListener('click', () => {
+      if (_collapsedFolders.has(dir)) _collapsedFolders.delete(dir);
+      else _collapsedFolders.add(dir);
+      localStorage.setItem('storyboard_collapsedFolders', JSON.stringify([..._collapsedFolders]));
+      _renderList(_lastFilteredScenes);
+    });
+    return row;
+  }
+
+  function _buildListRow(scene, pathLabel, visibleCols) {
+    const row = document.createElement('div');
+    row.className = 'list-row';
+    row.dataset.sceneId = scene.id;
+    row.dataset.status = scene.status || 'untagged';
+
+    const thumbWrap = document.createElement('div');
+    const img = document.createElement('img');
+    img.className = 'list-thumb'; img.alt = scene.asset.path;
+    thumbWrap.appendChild(img);
+
+    const dot = document.createElement('div');
+    dot.className = `dot dot-${_statusColor(scene.status || 'untagged')}`;
+
+    const pathCell = document.createElement('div');
+    pathCell.className = 'list-cell primary';
+    pathCell.textContent = pathLabel;
+    pathCell.title = scene.asset.path;
+
+    row.append(thumbWrap, dot, pathCell);
+
+    visibleCols.forEach(col => {
+      if (col.id === 'tags') {
+        const div = document.createElement('div');
+        div.className = 'list-tags';
+        (scene.tags || []).slice(0, 3).forEach(t => {
+          const chip = document.createElement('span'); chip.className = 'list-tag'; chip.textContent = t;
+          div.appendChild(chip);
+        });
+        if ((scene.tags || []).length > 3) {
+          const more = document.createElement('span'); more.className = 'list-tag'; more.textContent = `+${scene.tags.length - 3}`;
+          div.appendChild(more);
+        }
+        row.appendChild(div);
+      } else if (col.id === 'narrative') {
+        const div = document.createElement('div');
+        div.className = 'list-narrative';
+        const t = scene.narrative || '';
+        div.textContent = t ? (t.length > 80 ? t.slice(0, 80) + '…' : t) : '—';
+        if (t.length > 80) div.title = t;
+        row.appendChild(div);
+      } else if (col.id === 'chars') {
+        const div = document.createElement('div');
+        div.className = 'list-cell';
+        const proj = App.State.get('project');
+        const names = (scene.characters || []).slice(0, 3).map(e => {
+          const c = (proj?.characters || []).find(ch => ch.id === e.characterId);
+          return c ? (c.alias || c.name) : '?';
+        });
+        if ((scene.characters || []).length > 3) names.push(`+${scene.characters.length - 3}`);
+        div.textContent = names.join(', ') || '—';
+        row.appendChild(div);
+      } else {
+        const val = col.id === 'rating' ? scene.contentRating
+                  : col.id === 'shot'   ? scene.shot?.type
+                  : col.id === 'trans'  ? scene.shot?.transition
+                  : col.id === 'mood'   ? scene.mood : null;
+        row.appendChild(_listCell(val));
+      }
+    });
+
+    row.appendChild(document.createElement('div')); // picker-btn column spacer
+    row.addEventListener('click', () => App.Editor.open(scene.id));
+    return row;
   }
 
   function _toggleColPicker(btn) {
