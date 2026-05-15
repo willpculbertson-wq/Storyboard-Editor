@@ -466,21 +466,58 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .list-folder-row.collapsed .list-folder-arrow{transform:rotate(-90deg)}
 
 /* ── GRID VIEW (tree rendering) ────────────────────────── */
-#image-grid-inner.grid-view{display:flex;flex-direction:column;gap:8px;padding:8px}
+#image-grid-inner.grid-view{display:flex;flex-direction:column;gap:8px}
 .scene-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
+
+/* Root "All Images" container */
+.seq-root{border:2px solid var(--accent);border-radius:6px;background:var(--bg-0);overflow:hidden;min-height:60px}
+.seq-root-header{
+  display:flex;align-items:center;gap:10px;padding:10px 14px;
+  background:var(--bg-1);border-bottom:1px solid var(--border);user-select:none;
+}
+.seq-root-name{
+  flex:1;font-weight:700;font-size:20px;cursor:pointer;color:var(--text-0);
+  border:1px solid transparent;border-radius:3px;padding:1px 4px;
+}
+.seq-root-name:hover{border-color:var(--border)}
+.seq-root-name-input{
+  flex:1;font-size:20px;font-weight:700;background:var(--bg-0);border:1px solid var(--accent);
+  border-radius:3px;padding:1px 4px;color:var(--text-0);
+}
+.seq-root-count{font-size:12px;color:var(--text-2);white-space:nowrap}
+.seq-root-body{padding:10px;display:flex;flex-direction:column;gap:10px}
 
 /* Groups */
 .seq-group{border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-1);overflow:hidden}
+.seq-group[data-depth="0"]{border-color:#4a7ab5}
+.seq-group[data-depth="1"]{border-color:#4a8f6a;margin-left:16px}
+.seq-group[data-depth="2"]{border-color:#8f6a4a;margin-left:16px}
+.seq-group[data-depth="3"]{border-color:#6a4a8f;margin-left:16px}
 .seq-group-header{
-  display:flex;align-items:center;gap:8px;padding:6px 10px;
+  display:flex;align-items:center;gap:6px;padding:6px 10px;
   cursor:grab;background:var(--bg-2);user-select:none;border-bottom:1px solid var(--border);
 }
 .seq-group-header:active{cursor:grabbing}
-.seq-group-arrow{font-size:10px;transition:transform .15s;cursor:pointer}
+.seq-group-arrow{font-size:10px;transition:transform .15s;cursor:pointer;flex-shrink:0}
 .seq-group.collapsed .seq-group-arrow{transform:rotate(-90deg)}
-.seq-group-name{flex:1;font-weight:600;font-size:13px;cursor:pointer}
-.seq-group-name-input{flex:1;font-size:13px;font-weight:600;background:var(--bg-0);border:1px solid var(--accent);border-radius:3px;padding:1px 4px;color:var(--text-0)}
-.seq-group-count{font-size:11px;color:var(--text-2)}
+.seq-group-name{
+  flex:1;font-weight:600;cursor:pointer;
+  border:1px solid transparent;border-radius:3px;padding:1px 3px;
+}
+.seq-group-name:hover{border-color:var(--border)}
+.seq-group[data-depth="0"] .seq-group-name{font-size:15px}
+.seq-group[data-depth="1"] .seq-group-name{font-size:13px}
+.seq-group[data-depth="2"] .seq-group-name,.seq-group[data-depth="3"] .seq-group-name{font-size:12px}
+.seq-group-name-input{flex:1;font-weight:600;background:var(--bg-0);border:1px solid var(--accent);border-radius:3px;padding:1px 4px;color:var(--text-0)}
+.seq-group[data-depth="0"] .seq-group-name-input{font-size:15px}
+.seq-group[data-depth="1"] .seq-group-name-input{font-size:13px}
+.seq-group[data-depth="2"] .seq-group-name-input,.seq-group[data-depth="3"] .seq-group-name-input{font-size:12px}
+.seq-group-count{font-size:11px;color:var(--text-2);white-space:nowrap}
+.seq-group-order-btn{
+  background:transparent;color:var(--text-2);padding:1px 5px;font-size:12px;
+  border-radius:2px;opacity:.45;flex-shrink:0;line-height:1.2;
+}
+.seq-group-order-btn:hover{background:var(--bg-3);color:var(--text-0);opacity:1}
 .seq-group-body{padding:8px;display:flex;flex-direction:column;gap:8px}
 .seq-group.collapsed .seq-group-body{display:none}
 .seq-group-preview{display:none;align-items:center;gap:10px;padding:8px 10px}
@@ -976,6 +1013,7 @@ function buildEmptyProject(title) {
       id: crypto.randomUUID(), title: title || 'Untitled Project',
       version: '1.1.0', created: new Date().toISOString(), modified: new Date().toISOString(),
     },
+    rootName: 'All Images',
     characters: [],
     variables: [],
     sequence: [],
@@ -1156,6 +1194,7 @@ function migrateProject(p) {
   }
   if (!Array.isArray(p.sequence))  p.sequence  = [];
   if (!Array.isArray(p.variables)) p.variables = [];
+  if (!p.rootName) p.rootName = 'All Images';
   // Ensure every element has a type field
   App.Seq.walk(p.sequence, el => { if (!el.type) el.type = 'scene'; });
   if (!p.project.version || p.project.version === '1.0.0') p.project.version = '1.1.0';
@@ -1505,6 +1544,8 @@ App.CtxMenu = (function() {
 
     if (isGroup) {
       _item('Rename group', () => App.Grid.renameGroup(targetId));
+      _item('Move up',      () => App.Grid.moveGroupUp(targetId));
+      _item('Move down',    () => App.Grid.moveGroupDown(targetId));
       _item('Ungroup',      () => App.Grid.ungroup(targetId));
     }
 
@@ -1678,10 +1719,89 @@ App.Grid = (function() {
     document.getElementById('image-grid').style.padding = '';
     _inner.className = 'grid-view';
     _inner.innerHTML = '';
-    _renderSequenceInto(sequence, _inner);
+
+    const project = App.State.get('project');
+    const rootName = project.rootName || 'All Images';
+    const totalScenes = App.Seq.flatScenes(sequence).length;
+
+    const root = document.createElement('div');
+    root.className = 'seq-root';
+
+    const header = document.createElement('div');
+    header.className = 'seq-root-header';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'seq-root-name';
+    nameEl.textContent = rootName;
+    nameEl.title = 'Click to rename';
+    nameEl.addEventListener('click', () => _startRootEdit(nameEl));
+
+    const countEl = document.createElement('span');
+    countEl.className = 'seq-root-count';
+    countEl.textContent = `${totalScenes} image${totalScenes !== 1 ? 's' : ''}`;
+
+    header.appendChild(nameEl);
+    header.appendChild(countEl);
+    root.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'seq-root-body';
+    _renderSequenceInto(sequence, body, 0);
+    root.appendChild(body);
+
+    _inner.appendChild(root);
   }
 
-  function _renderSequenceInto(seq, container) {
+  function _startRootEdit(nameEl) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'seq-root-name-input';
+    input.value = nameEl.textContent;
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+    let committed = false;
+    function commit() {
+      if (committed) return;
+      committed = true;
+      const val = input.value.trim() || 'All Images';
+      App.State.mutateProject(project => { project.rootName = val; });
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { committed = true; render(); }
+    });
+  }
+
+  function _startInlineEdit(groupId, nameEl) {
+    const origText = nameEl.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'seq-group-name-input';
+    input.value = origText;
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+    let committed = false;
+    function commit() {
+      if (committed) return;
+      committed = true;
+      const val = input.value.trim() || origText;
+      App.State.mutateProject(project => {
+        const found = App.Seq.findById(project.sequence, groupId);
+        if (found) found.el.name = val;
+      });
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { committed = true; render(); }
+    });
+  }
+
+  function _renderSequenceInto(seq, container, depth) {
+    if (depth === undefined) depth = 0;
     const frag = document.createDocumentFragment();
     const pendingScenes = [];
     const skipIds = new Set();
@@ -1707,7 +1827,7 @@ App.Grid = (function() {
         pendingScenes.push(el);
       } else if (el.type === 'group') {
         flushScenes();
-        frag.appendChild(_buildGroup(el));
+        frag.appendChild(_buildGroup(el, depth));
       } else if (el.type === 'branch_split') {
         flushScenes();
         let rejoin = null;
@@ -1785,10 +1905,12 @@ App.Grid = (function() {
     return card;
   }
 
-  function _buildGroup(el) {
+  function _buildGroup(el, depth) {
+    if (depth === undefined) depth = 0;
     const group = document.createElement('div');
     group.className = 'seq-group' + (el.collapsed ? ' collapsed' : '');
     group.dataset.elementId = el.id;
+    group.dataset.depth = Math.min(depth, 3);
 
     const sceneCount = App.Seq.flatScenes(el.sequence || []).length;
 
@@ -1809,18 +1931,32 @@ App.Grid = (function() {
     const name = document.createElement('span');
     name.className = 'seq-group-name';
     name.textContent = el.name || 'Group';
-    name.addEventListener('dblclick', e => {
+    name.addEventListener('click', e => {
       e.stopPropagation();
-      App.Grid.renameGroup(el.id);
+      _startInlineEdit(el.id, name);
     });
 
     const count = document.createElement('span');
     count.className = 'seq-group-count';
     count.textContent = `${sceneCount} scene${sceneCount !== 1 ? 's' : ''}`;
 
+    const btnUp = document.createElement('button');
+    btnUp.className = 'seq-group-order-btn';
+    btnUp.textContent = '↑';
+    btnUp.title = 'Move up';
+    btnUp.addEventListener('click', e => { e.stopPropagation(); moveGroupUp(el.id); });
+
+    const btnDown = document.createElement('button');
+    btnDown.className = 'seq-group-order-btn';
+    btnDown.textContent = '↓';
+    btnDown.title = 'Move down';
+    btnDown.addEventListener('click', e => { e.stopPropagation(); moveGroupDown(el.id); });
+
     header.appendChild(arrow);
     header.appendChild(name);
     header.appendChild(count);
+    header.appendChild(btnUp);
+    header.appendChild(btnDown);
     header.addEventListener('contextmenu', e => {
       e.preventDefault(); e.stopPropagation();
       App.CtxMenu.show(e.clientX, e.clientY, el.id);
@@ -1835,7 +1971,7 @@ App.Grid = (function() {
       preview.appendChild(_makeGroupThumb(scenes[0]));
       const badge = document.createElement('span');
       badge.className = 'seq-group-badge';
-      badge.textContent = `${sceneCount} scenes`;
+      badge.textContent = `${sceneCount} scene${sceneCount !== 1 ? 's' : ''}`;
       preview.appendChild(badge);
       if (scenes.length > 1) preview.appendChild(_makeGroupThumb(scenes[scenes.length - 1]));
     }
@@ -1843,7 +1979,7 @@ App.Grid = (function() {
 
     const body = document.createElement('div');
     body.className = 'seq-group-body';
-    _renderSequenceInto(el.sequence || [], body);
+    _renderSequenceInto(el.sequence || [], body, depth + 1);
     group.appendChild(body);
 
     return group;
@@ -1942,10 +2078,11 @@ App.Grid = (function() {
     const beforeEl = firstRef.index > 0 ? firstRef.arr[firstRef.index - 1] : null;
     const insertAfterId = beforeEl?.id ?? null;
     const parentArr = firstRef.arr;
+    const newId = crypto.randomUUID();
     App.State.mutateProject(project => {
       const elements = orderedIds.map(id => App.Seq.findById(project.sequence, id)?.el).filter(Boolean);
       orderedIds.forEach(id => App.Seq.remove(project.sequence, id));
-      const group = { type:'group', id:crypto.randomUUID(), name:'New Group', collapsed:false, sequence:elements };
+      const group = { type:'group', id:newId, name:'New Group', collapsed:false, sequence:elements };
       if (insertAfterId && App.Seq.findById(project.sequence, insertAfterId)) {
         App.Seq.insertAfter(project.sequence, group, insertAfterId);
       } else {
@@ -1955,24 +2092,38 @@ App.Grid = (function() {
     });
     App.State.get('selectedCards').clear();
     App.Filters.updateBulkBar();
+    const nameEl = document.querySelector(`.seq-group[data-element-id="${newId}"] .seq-group-name`);
+    if (nameEl) _startInlineEdit(newId, nameEl);
   }
 
   function addGroupAfter(afterId) {
-    const name = prompt('Group name:', 'New Group');
-    if (!name) return;
-    const group = { type:'group', id:crypto.randomUUID(), name, collapsed:false, sequence:[] };
+    const newId = crypto.randomUUID();
+    const group = { type:'group', id:newId, name:'New Group', collapsed:false, sequence:[] };
     App.State.mutateProject(project => { App.Seq.insertAfter(project.sequence, group, afterId); });
+    const nameEl = document.querySelector(`.seq-group[data-element-id="${newId}"] .seq-group-name`);
+    if (nameEl) _startInlineEdit(newId, nameEl);
   }
 
   function renameGroup(groupId) {
-    const project = App.State.get('project');
-    const found = App.Seq.findById(project.sequence, groupId);
-    if (!found || found.el.type !== 'group') return;
-    const name = prompt('Group name:', found.el.name || '');
-    if (name === null) return;
+    const nameEl = document.querySelector(`.seq-group[data-element-id="${groupId}"] .seq-group-name`);
+    if (nameEl) _startInlineEdit(groupId, nameEl);
+  }
+
+  function moveGroupUp(id) {
     App.State.mutateProject(project => {
-      const f = App.Seq.findById(project.sequence, groupId);
-      if (f) f.el.name = name;
+      const found = App.Seq.findById(project.sequence, id);
+      if (!found || found.index === 0) return;
+      const { arr, index } = found;
+      [arr[index - 1], arr[index]] = [arr[index], arr[index - 1]];
+    });
+  }
+
+  function moveGroupDown(id) {
+    App.State.mutateProject(project => {
+      const found = App.Seq.findById(project.sequence, id);
+      if (!found || found.index >= found.arr.length - 1) return;
+      const { arr, index } = found;
+      [arr[index], arr[index + 1]] = [arr[index + 1], arr[index]];
     });
   }
 
@@ -2516,6 +2667,7 @@ App.Grid = (function() {
   return {
     init, render, refreshCard, setViewMode,
     createGroupFromSelection, addGroupAfter, renameGroup, ungroup,
+    moveGroupUp, moveGroupDown,
     duplicateElement, insertNode, deleteElement, collapseAll, expandAll,
   };
 })();

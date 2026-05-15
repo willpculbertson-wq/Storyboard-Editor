@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-05-15 — Reimagine grid view as a scene-ordering engine with root container and depth-aware groups
+
+- **Root "All Images" container**: the entire grid is now wrapped in a named root box with a thick accent border and large editable heading. Click the heading to rename it (stored as `project.rootName`, defaults to "All Images" for new and migrated projects).
+- **Depth-aware group styling**: groups at depth 0 get a blue border and H2-sized (15px) label; depth 1 gets green + H3 (13px) with 16px left indent; depth 2+ gets amber/purple + H4 (12px) with further indent. Border color and font size signal hierarchy at a glance.
+- **Inline rename — no more prompts**: clicking a group name swaps it for an in-place text input. Enter/blur commits; Escape cancels. `addGroupAfter` and `createGroupFromSelection` now auto-enter inline edit immediately after the group is created so you can name it without a second click.
+- **↑ / ↓ reorder buttons**: every group header has subtle up/down arrow buttons that swap the group with its neighbour in the sequence array. Also accessible via "Move up" / "Move down" in the right-click context menu.
+- **Collapsed preview shows scene count badge** (`N scene(s)`).
+- Removed double-padding on `#image-grid-inner.grid-view` (was 8px inner + 8px outer; now uses only `#image-grid`'s 8px).
+
 ## 2026-05-15 — Editor selection/expand behaviour fixes
 
 - **Editor no longer auto-expands on card click**: `open(sceneId)` now only auto-expands in list view; in grid and focus views it tracks the selected scene and updates the tab label without expanding the panel. The user must tap the tab strip to expand in those views.
