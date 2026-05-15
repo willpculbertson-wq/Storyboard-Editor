@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-05-15 — Editor tab strip; grouping fixes
+
+- **Editor close bug fixed**: `close()` was removing the `.open` class but leaving an inline `style.height` set by `open()`, which overrode the CSS `height:0` — panel never collapsed. Fixed by clearing the inline style in `close()`.
+- **Editor redesigned as persistent tab strip**: replaced the ✕ close button with a 36px tab strip always visible at the bottom of the main content area. Clicking the strip or the ▲ toggle expands/collapses the editor; the tab label shows the current scene filename when a scene is open.
+- `#scene-editor` now defaults to `height:36px` (tab-only) instead of `height:0`; inner content and height-handle are `display:none` when collapsed, shown when `.open` is added.
+- Vertical drag resize updated to save/restore only the content height (total minus tab and handle); min height enforced as `MIN_H + TAB_H + HANDLE_H`.
+- Escape key closes the editor in both grid and focus modes (was blocked in focus mode).
+- **Grouping fix — wrong position**: `createGroupFromSelection` was using `parentArr.push(group)` when the first selected scene was at index 0, inserting the group at the end instead of the front. Fixed to `parentArr.unshift(group)`.
+- **Grouping fix — context menu**: "Create group from selection" now appears when `sel.size >= 2` regardless of whether the right-clicked card is in the selection (was requiring `sel.has(targetId)`).
+
 ## 2026-05-13 — Collapse/Expand All in list view; recursive folder hierarchy
 
 - Moved "Collapse All" and "Expand All" buttons out of the grid-only header zone; they now live in a `.tree-btn-group` div immediately right of the view switcher and are visible in both grid and list views (hidden only in focus view)

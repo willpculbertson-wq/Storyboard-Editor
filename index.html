@@ -154,17 +154,35 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 
 /* ── SCENE EDITOR PANEL ────────────────────────────────── */
 #scene-editor{
-  height:0;overflow:hidden;border-top:1px solid var(--border);
+  /* Collapsed = 36px (just the tab strip) */
+  height:36px;overflow:hidden;
   background:var(--bg-1);transition:height .2s ease;
   display:flex;flex-direction:column;
 }
-#scene-editor.open{height:480px}
+/* Tab strip — always the first visible row */
+#editor-tab{
+  flex:0 0 36px;display:flex;align-items:center;gap:8px;padding:0 12px;
+  border-top:1px solid var(--border);cursor:pointer;user-select:none;
+}
+#editor-tab:hover{background:var(--bg-2)}
+#editor-tab-label{
+  flex:1;font-size:12px;font-weight:500;color:var(--text-1);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+#editor-tab-toggle{
+  background:transparent;color:var(--text-2);font-size:9px;padding:2px 6px;
+  transition:transform .15s;
+}
+#scene-editor.open #editor-tab-toggle{transform:rotate(180deg)}
+/* Height handle — hidden when collapsed, shown when open */
 #editor-height-handle{
-  height:6px;flex:0 0 6px;cursor:ns-resize;
+  height:6px;flex:0 0 6px;cursor:ns-resize;display:none;
   background:var(--border);transition:background .15s;flex-shrink:0;
 }
 #editor-height-handle:hover{background:var(--accent)}
-#scene-editor-inner{display:flex;flex:1;min-height:0;}
+#scene-editor.open #editor-height-handle{display:block}
+#scene-editor-inner{display:none;flex:1;min-height:0;}
+#scene-editor.open #scene-editor-inner{display:flex}
 #editor-preview{
   flex:0 0 240px;background:var(--bg-0);
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -184,8 +202,6 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
   flex:1;overflow-y:auto;padding:10px;
   display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-content:start;
 }
-#editor-close{position:absolute;right:8px;top:8px;background:transparent;color:var(--text-1);font-size:16px;padding:2px 6px}
-#editor-close:hover{color:var(--text-0)}
 #editor-header{
   position:relative;grid-column:1/-1;
   display:flex;align-items:center;gap:10px;padding-bottom:6px;border-bottom:1px solid var(--border);
@@ -691,8 +707,12 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       </div>
     </div>
 
-    <!-- Scene editor slides up from bottom -->
+    <!-- Scene editor — always shows 36px tab strip; expands upward -->
     <div id="scene-editor">
+      <div id="editor-tab">
+        <span id="editor-tab-label">Scene Editor</span>
+        <button id="editor-tab-toggle" title="Expand / collapse editor">▲</button>
+      </div>
       <div id="editor-height-handle"></div>
       <div id="scene-editor-inner">
         <div id="editor-preview">
@@ -704,7 +724,6 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
         <div id="editor-fields">
           <div id="editor-header">
             <h3>Scene Editor</h3>
-            <button id="editor-close">✕</button>
           </div>
 
           <div class="field-group">
@@ -1479,7 +1498,7 @@ App.CtxMenu = (function() {
     const isNode  = el?.type === 'action' || el?.type === 'branch_split' || el?.type === 'rejoin';
     const sel     = App.State.get('selectedCards');
 
-    if (sel.size > 1 && sel.has(targetId)) {
+    if (sel.size >= 2) {
       _item('Create group from selection', () => App.Grid.createGroupFromSelection());
     }
     _item('Add group here', () => App.Grid.addGroupAfter(targetId));
@@ -1930,7 +1949,8 @@ App.Grid = (function() {
       if (insertAfterId && App.Seq.findById(project.sequence, insertAfterId)) {
         App.Seq.insertAfter(project.sequence, group, insertAfterId);
       } else {
-        parentArr.push(group);
+        // First selected was at position 0; insert group at the front, not the back
+        parentArr.unshift(group);
       }
     });
     App.State.get('selectedCards').clear();
@@ -2505,6 +2525,9 @@ App.Editor = (function() {
   let _panel;
   let _initialized = false;
 
+  const _TAB_H    = 36; // editor tab strip height (px)
+  const _HANDLE_H = 6;  // vertical resize handle height (px)
+
   function init() {
     if (_initialized) return;
     _initialized = true;
@@ -2514,15 +2537,20 @@ App.Editor = (function() {
     fields.addEventListener('change', _onFieldChange);
     fields.addEventListener('input',  _onFieldInput);
 
-    document.getElementById('editor-close').addEventListener('click', close);
+    // Tab strip click — toggle expand/collapse
+    document.getElementById('editor-tab').addEventListener('click', () => {
+      if (_panel.classList.contains('open')) close();
+      else if (_currentId) open(_currentId);
+    });
+
     document.getElementById('ed-chars-add-btn').addEventListener('click', _addCharacter);
     document.getElementById('ed-tag-input').addEventListener('keydown', _onTagKeydown);
 
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape' && _currentId && App.State.get('viewMode') !== 'focus') close();
+      if (e.key === 'Escape' && _currentId && _panel.classList.contains('open')) close();
     });
 
-    // Resize handle drag (detail-mode only)
+    // Horizontal resize handle (detail-mode only)
     (function() {
       const handle  = document.getElementById('editor-resize-handle');
       const preview = document.getElementById('editor-preview');
@@ -2553,7 +2581,7 @@ App.Editor = (function() {
       });
     })();
 
-    // Vertical resize (editor height)
+    // Vertical resize (drag the top edge of the open panel)
     (function() {
       const hHandle = document.getElementById('editor-height-handle');
       const MIN_H = 200, MAX_H = () => window.innerHeight - 80;
@@ -2571,8 +2599,8 @@ App.Editor = (function() {
 
       document.addEventListener('mousemove', e => {
         if (!dragging) return;
-        // Panel is at bottom; dragging up (negative delta) increases height
-        const newH = Math.max(MIN_H, Math.min(MAX_H(), startH - (e.clientY - startY)));
+        // Panel at bottom; dragging up (negative Δy) increases height
+        const newH = Math.max(MIN_H + _TAB_H + _HANDLE_H, Math.min(MAX_H(), startH - (e.clientY - startY)));
         _panel.style.transition = 'none';
         _panel.style.height     = newH + 'px';
       });
@@ -2583,7 +2611,8 @@ App.Editor = (function() {
         document.body.style.cursor     = '';
         document.body.style.userSelect = '';
         _panel.style.transition = '';
-        localStorage.setItem('storyboard_editorH', _panel.offsetHeight);
+        // Save content height (total minus tab and handle)
+        localStorage.setItem('storyboard_editorH', _panel.offsetHeight - _TAB_H - _HANDLE_H);
       });
     })();
   }
@@ -2595,9 +2624,13 @@ App.Editor = (function() {
     if (!scene) return;
     _panel.classList.toggle('detail-mode', App.State.get('viewMode') === 'list');
     _populate(scene);
-    const savedH = localStorage.getItem('storyboard_editorH');
-    _panel.style.height = (savedH ? parseInt(savedH) : 480) + 'px';
+    // Set height = content height + tab strip + handle
+    const savedH = parseInt(localStorage.getItem('storyboard_editorH') || '480');
+    _panel.style.height = (savedH + _TAB_H + _HANDLE_H) + 'px';
     _panel.classList.add('open');
+    // Update tab label to show current scene filename
+    document.getElementById('editor-tab-label').textContent =
+      (scene.asset.filename || scene.asset.path) + ' — Scene Editor';
     App.Grid.refreshCard(sceneId);
     _loadPreviewImage(scene);
   }
@@ -2606,7 +2639,10 @@ App.Editor = (function() {
     const prev = _currentId;
     _currentId = null;
     App.State.set('selectedSceneId', null);
+    // Clear inline height so CSS height:36px (tab strip) takes effect
+    _panel.style.height = '';
     _panel.classList.remove('open');
+    document.getElementById('editor-tab-label').textContent = 'Scene Editor';
     if (prev) App.Grid.refreshCard(prev);
   }
 
