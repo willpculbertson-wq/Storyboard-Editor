@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-05-15 — Editor selection/expand behaviour fixes
+
+- **Editor no longer auto-expands on card click**: `open(sceneId)` now only auto-expands in list view; in grid and focus views it tracks the selected scene and updates the tab label without expanding the panel. The user must tap the tab strip to expand in those views.
+- **Selection preserved on collapse**: `close()` no longer clears `selectedSceneId` or `_currentId`; collapsing simply hides the panel content while leaving the card highlight and scene tracking intact.
+- Added `_expand()` — internal function called by the tab strip to force-expand the panel for the currently tracked scene regardless of view mode.
+- Added `syncDetailMode(inList)` — called from `setViewMode` to keep the preview-pane `detail-mode` class correct when switching views without reopening the editor.
+- Added `reset()` — full teardown (clears `_currentId`, clears `selectedSceneId`, resets tab label, collapses panel) called on project close via the home button; `close()` no longer does this.
+- Arrow key navigation in focus mode calls `App.Editor.open()` (select-only, no expand) so the center scene can shift without forcing the editor open.
+
 ## 2026-05-15 — Editor tab strip; grouping fixes
 
 - **Editor close bug fixed**: `close()` was removing the `.open` class but leaving an inline `style.height` set by `open()`, which overrode the CSS `height:0` — panel never collapsed. Fixed by clearing the inline style in `close()`.

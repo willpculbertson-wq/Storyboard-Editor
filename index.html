@@ -2492,9 +2492,12 @@ App.Grid = (function() {
     shell.classList.remove('view-grid', 'view-list', 'view-focus');
     shell.classList.add('view-' + mode);
     if (mode === 'focus') {
+      // Ensure a scene is selected for the focus center; don't expand editor
       const selId = App.State.get('selectedSceneId') || _lastFilteredScenes[0]?.id;
       if (selId) App.Editor.open(selId);
     }
+    // Keep detail-mode in sync: preview pane only shows in list view
+    App.Editor.syncDetailMode(mode === 'list');
     render();
   }
 
@@ -2540,7 +2543,7 @@ App.Editor = (function() {
     // Tab strip click — toggle expand/collapse
     document.getElementById('editor-tab').addEventListener('click', () => {
       if (_panel.classList.contains('open')) close();
-      else if (_currentId) open(_currentId);
+      else _expand(); // explicit expand from user action
     });
 
     document.getElementById('ed-chars-add-btn').addEventListener('click', _addCharacter);
@@ -2617,33 +2620,61 @@ App.Editor = (function() {
     })();
   }
 
+  // Explicitly expand the panel (called when the user taps the tab strip).
+  // If a scene is already tracked, populate and expand. Otherwise no-op.
+  function _expand() {
+    if (!_currentId) return;
+    const scene = App.State.get('_sceneIndex').get(_currentId);
+    if (!scene) return;
+    const inList = App.State.get('viewMode') === 'list';
+    _panel.classList.toggle('detail-mode', inList);
+    _populate(scene);
+    _loadPreviewImage(scene);
+    const savedH = parseInt(localStorage.getItem('storyboard_editorH') || '480');
+    _panel.style.height = (savedH + _TAB_H + _HANDLE_H) + 'px';
+    _panel.classList.add('open');
+  }
+
+  // Select a scene: track it, update the tab label, repopulate content if already
+  // open. Only auto-expands in list view; in all other views the panel stays
+  // collapsed until the user explicitly opens it via the tab strip.
   function open(sceneId) {
+    const prev = _currentId;
     _currentId = sceneId;
     App.State.set('selectedSceneId', sceneId);
     const scene = App.State.get('_sceneIndex').get(sceneId);
     if (!scene) return;
-    _panel.classList.toggle('detail-mode', App.State.get('viewMode') === 'list');
-    _populate(scene);
-    // Set height = content height + tab strip + handle
-    const savedH = parseInt(localStorage.getItem('storyboard_editorH') || '480');
-    _panel.style.height = (savedH + _TAB_H + _HANDLE_H) + 'px';
-    _panel.classList.add('open');
-    // Update tab label to show current scene filename
+
+    // Update tab label always
     document.getElementById('editor-tab-label').textContent =
       (scene.asset.filename || scene.asset.path) + ' — Scene Editor';
+
+    const isOpen = _panel.classList.contains('open');
+    const inList = App.State.get('viewMode') === 'list';
+
+    if (isOpen || inList) {
+      // Repopulate and (if needed) expand
+      _panel.classList.toggle('detail-mode', inList);
+      _populate(scene);
+      _loadPreviewImage(scene);
+      if (!isOpen) {
+        // Auto-expand only for list view
+        const savedH = parseInt(localStorage.getItem('storyboard_editorH') || '480');
+        _panel.style.height = (savedH + _TAB_H + _HANDLE_H) + 'px';
+        _panel.classList.add('open');
+      }
+    }
+    // Refresh highlight on the new and previous card
     App.Grid.refreshCard(sceneId);
-    _loadPreviewImage(scene);
+    if (prev && prev !== sceneId) App.Grid.refreshCard(prev);
   }
 
+  // Collapse the editor to its tab strip. Selection is preserved.
   function close() {
-    const prev = _currentId;
-    _currentId = null;
-    App.State.set('selectedSceneId', null);
     // Clear inline height so CSS height:36px (tab strip) takes effect
     _panel.style.height = '';
     _panel.classList.remove('open');
-    document.getElementById('editor-tab-label').textContent = 'Scene Editor';
-    if (prev) App.Grid.refreshCard(prev);
+    // Do NOT clear _currentId or selectedSceneId — selection stays active
   }
 
   function _loadPreviewImage(scene) {
@@ -2837,7 +2868,21 @@ App.Editor = (function() {
     if (scene) document.getElementById('ed-hash').textContent = scene.asset.hash || '(computing…)';
   }
 
-  return { init, open, close, refreshHash };
+  // Update detail-mode class without opening/closing the panel
+  function syncDetailMode(inList) {
+    _panel?.classList.toggle('detail-mode', inList);
+  }
+
+  // Full reset on project close — collapses and clears all tracking state
+  function reset() {
+    _currentId = null;
+    App.State.set('selectedSceneId', null);
+    _panel.style.height = '';
+    _panel.classList.remove('open');
+    document.getElementById('editor-tab-label').textContent = 'Scene Editor';
+  }
+
+  return { init, open, close, reset, syncDetailMode, refreshHash };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -3815,11 +3860,10 @@ document.getElementById('btn-home').addEventListener('click', () => {
   if (!confirm('Return to the project switcher? Unsaved changes will be saved first.')) return;
   App.FS.saveNow().then(() => {
     App.LazyLoader.teardown();
-    App.Editor.close();
+    App.Editor.reset();
     App.State.set('project', null);
     App.State.set('dirHandle', null);
     App.State.set('jsonFileHandle', null);
-    App.State.set('selectedSceneId', null);
     App.State.set('selectMode', false);
     App.State.get('fileHandleCache').clear();
     App.State.get('selectedCards').clear();
