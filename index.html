@@ -1543,10 +1543,12 @@ App.CtxMenu = (function() {
     _item('Add group here', () => App.Grid.addGroupAfter(targetId));
 
     if (isGroup) {
-      _item('Rename group', () => App.Grid.renameGroup(targetId));
-      _item('Move up',      () => App.Grid.moveGroupUp(targetId));
-      _item('Move down',    () => App.Grid.moveGroupDown(targetId));
-      _item('Ungroup',      () => App.Grid.ungroup(targetId));
+      _item('Rename group',    () => App.Grid.renameGroup(targetId));
+      _item('Move to top',    () => App.Grid.moveGroupToTop(targetId));
+      _item('Move up',        () => App.Grid.moveGroupUp(targetId));
+      _item('Move down',      () => App.Grid.moveGroupDown(targetId));
+      _item('Move to bottom', () => App.Grid.moveGroupToBottom(targetId));
+      _item('Ungroup',        () => App.Grid.ungroup(targetId));
     }
 
     if (!isGroup) {
@@ -1648,22 +1650,28 @@ App.Grid = (function() {
         if (App.State.get('viewMode') === 'list') _expandAllFolders();
         else expandAll();
       });
-      document.getElementById('btn-add-group')?.addEventListener('click', () => addGroupAfter(null));
+      document.getElementById('btn-add-group')?.addEventListener('click', () => {
+        const sel = App.State.get('selectedCards');
+        if (sel.size >= 1) createGroupFromSelection();
+        else addGroupAfter(null);
+      });
       App.CtxMenu.init();
       _initialized = true;
     }
   }
 
+  function _passesFilter(scene, filter) {
+    const status = scene.status || 'untagged';
+    if (status === 'excluded' && !filter.showExcluded && !filter.statuses.has('excluded')) return false;
+    if (filter.statuses.size > 0 && !filter.statuses.has(status)) return false;
+    if (filter.contentRatings.size > 0 && !filter.contentRatings.has(scene.contentRating || '')) return false;
+    if (filter.characterIds.size > 0 && !(scene.characters || []).some(c => filter.characterIds.has(c.characterId))) return false;
+    if (filter.taggedOnly && (!scene.tags || scene.tags.length === 0)) return false;
+    return true;
+  }
+
   function _applyFilter(scenes, filter) {
-    return scenes.filter(scene => {
-      const status = scene.status || 'untagged';
-      if (status === 'excluded' && !filter.showExcluded && !filter.statuses.has('excluded')) return false;
-      if (filter.statuses.size > 0 && !filter.statuses.has(status)) return false;
-      if (filter.contentRatings.size > 0 && !filter.contentRatings.has(scene.contentRating || '')) return false;
-      if (filter.characterIds.size > 0 && !(scene.characters || []).some(c => filter.characterIds.has(c.characterId))) return false;
-      if (filter.taggedOnly && (!scene.tags || scene.tags.length === 0)) return false;
-      return true;
-    });
+    return scenes.filter(s => _passesFilter(s, filter));
   }
 
   function render() {
@@ -1802,6 +1810,7 @@ App.Grid = (function() {
 
   function _renderSequenceInto(seq, container, depth) {
     if (depth === undefined) depth = 0;
+    const filter = App.State.get('filter');
     const frag = document.createDocumentFragment();
     const pendingScenes = [];
     const skipIds = new Set();
@@ -1824,7 +1833,7 @@ App.Grid = (function() {
       if (skipIds.has(el.id)) continue;
 
       if (el.type === 'scene') {
-        pendingScenes.push(el);
+        if (_passesFilter(el, filter)) pendingScenes.push(el);
       } else if (el.type === 'group') {
         flushScenes();
         frag.appendChild(_buildGroup(el, depth));
@@ -1940,6 +1949,12 @@ App.Grid = (function() {
     count.className = 'seq-group-count';
     count.textContent = `${sceneCount} scene${sceneCount !== 1 ? 's' : ''}`;
 
+    const btnTop = document.createElement('button');
+    btnTop.className = 'seq-group-order-btn';
+    btnTop.textContent = '⇈';
+    btnTop.title = 'Move to top';
+    btnTop.addEventListener('click', e => { e.stopPropagation(); moveGroupToTop(el.id); });
+
     const btnUp = document.createElement('button');
     btnUp.className = 'seq-group-order-btn';
     btnUp.textContent = '↑';
@@ -1952,11 +1967,19 @@ App.Grid = (function() {
     btnDown.title = 'Move down';
     btnDown.addEventListener('click', e => { e.stopPropagation(); moveGroupDown(el.id); });
 
+    const btnBottom = document.createElement('button');
+    btnBottom.className = 'seq-group-order-btn';
+    btnBottom.textContent = '⇊';
+    btnBottom.title = 'Move to bottom';
+    btnBottom.addEventListener('click', e => { e.stopPropagation(); moveGroupToBottom(el.id); });
+
     header.appendChild(arrow);
     header.appendChild(name);
     header.appendChild(count);
+    header.appendChild(btnTop);
     header.appendChild(btnUp);
     header.appendChild(btnDown);
+    header.appendChild(btnBottom);
     header.addEventListener('contextmenu', e => {
       e.preventDefault(); e.stopPropagation();
       App.CtxMenu.show(e.clientX, e.clientY, el.id);
@@ -2067,7 +2090,7 @@ App.Grid = (function() {
   // ── Public API: group / node operations ─────────────────
   function createGroupFromSelection() {
     const sel = App.State.get('selectedCards');
-    if (sel.size < 2) return;
+    if (!sel.size) return;
     const project = App.State.get('project');
     const orderedIds = [];
     App.Seq.walk(project.sequence, el => { if (sel.has(el.id)) orderedIds.push(el.id); });
@@ -2124,6 +2147,24 @@ App.Grid = (function() {
       if (!found || found.index >= found.arr.length - 1) return;
       const { arr, index } = found;
       [arr[index], arr[index + 1]] = [arr[index + 1], arr[index]];
+    });
+  }
+
+  function moveGroupToTop(id) {
+    App.State.mutateProject(project => {
+      const found = App.Seq.findById(project.sequence, id);
+      if (!found || found.index === 0) return;
+      const [el] = found.arr.splice(found.index, 1);
+      found.arr.unshift(el);
+    });
+  }
+
+  function moveGroupToBottom(id) {
+    App.State.mutateProject(project => {
+      const found = App.Seq.findById(project.sequence, id);
+      if (!found || found.index >= found.arr.length - 1) return;
+      const [el] = found.arr.splice(found.index, 1);
+      found.arr.push(el);
     });
   }
 
@@ -2667,7 +2708,7 @@ App.Grid = (function() {
   return {
     init, render, refreshCard, setViewMode,
     createGroupFromSelection, addGroupAfter, renameGroup, ungroup,
-    moveGroupUp, moveGroupDown,
+    moveGroupToTop, moveGroupUp, moveGroupDown, moveGroupToBottom,
     duplicateElement, insertNode, deleteElement, collapseAll, expandAll,
   };
 })();

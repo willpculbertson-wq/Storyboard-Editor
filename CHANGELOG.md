@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-15 — Fix grid filter, selection grouping, and add jump-to-top/bottom for groups
+
+- **Grid view now respects filters**: extracted `_passesFilter(scene, filter)` helper; `_renderSequenceInto` calls it per scene so excluded (and other filtered-out) images are hidden in grid mode, not just list/focus mode.
+- **`+ Group` button uses selection**: if any cards are selected, clicking `+ Group` now calls `createGroupFromSelection()` instead of making an empty group. `createGroupFromSelection` also now works with a single selected image (was requiring ≥ 2).
+- **Jump-to-top/bottom buttons**: every group header now has ⇈ (move to top of its parent) and ⇊ (move to bottom) flanking the existing ↑/↓ step buttons. Same operations added to the right-click context menu.
+
 ## 2026-05-15 — Reimagine grid view as a scene-ordering engine with root container and depth-aware groups
 
 - **Root "All Images" container**: the entire grid is now wrapped in a named root box with a thick accent border and large editable heading. Click the heading to rename it (stored as `project.rootName`, defaults to "All Images" for new and migrated projects).
