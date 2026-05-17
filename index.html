@@ -583,8 +583,10 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .ctx-item.disabled{opacity:.4;pointer-events:none}
 .ctx-sep{height:1px;background:var(--border);margin:4px 0}
 
-/* DnD drop indicator + group highlight */
-.dnd-placeholder{grid-column:1/-1;height:3px;background:var(--accent);border-radius:2px;pointer-events:none;box-shadow:0 0 6px rgba(59,130,246,.45);margin:1px 0}
+/* DnD indicators */
+.scene-card.dnd-before{box-shadow:-4px 0 0 var(--accent)}
+.scene-card.dnd-after {box-shadow: 4px 0 0 var(--accent)}
+.dnd-h-indicator{height:3px;background:var(--accent);border-radius:2px;box-shadow:0 0 6px rgba(59,130,246,.45);pointer-events:none;flex-shrink:0}
 .seq-group-header.drag-drop-over{background:rgba(59,130,246,.12)!important;outline:1px solid var(--accent)}
 .seq-group.dragging{opacity:.35}
 
@@ -1272,8 +1274,13 @@ App.Undo = (function() {
   function perform() {
     const snap = pop();
     if (!snap) return;
-    App.State.get('selectedCards').clear();
-    App.State.restoreProject(snap);
+    // Support both new format { project, selectedCards } and old format (raw project object)
+    const projectSnap = (snap && Array.isArray(snap.selectedCards)) ? snap.project : snap;
+    const selSnap     = (snap && Array.isArray(snap.selectedCards)) ? snap.selectedCards : [];
+    const sel = App.State.get('selectedCards');
+    sel.clear();
+    selSnap.forEach(id => sel.add(id));
+    App.State.restoreProject(projectSnap);
     App.Filters?.updateBulkBar();
   }
 
@@ -1306,7 +1313,10 @@ App.State = (function() {
 
   function mutateProject(fn, opts) {
     if (!_state.project) return;
-    if (!opts?.noUndo) App.Undo.push(JSON.parse(JSON.stringify(_state.project)));
+    if (!opts?.noUndo) App.Undo.push({
+      project: JSON.parse(JSON.stringify(_state.project)),
+      selectedCards: [..._state.selectedCards],
+    });
     fn(_state.project);
     _state.project.project.modified = new Date().toISOString();
     _state.dirty = true;
@@ -1557,18 +1567,24 @@ App.LazyLoader = (function() {
 App.DnD = (function() {
   let _dragIds  = [];    // scene IDs or [groupId] being dragged
   let _dragType = '';    // 'scenes' | 'group'
-  let _ph       = null;  // drop-indicator placeholder element
-  let _hoverGrp = null;  // group ID whose header is currently highlighted
+  let _hoverGrp = null;  // group ID highlighted for append
+  let _cardTgt  = null;  // { el, before } — card being hovered for vertical indicator
+  let _grpTgt   = null;  // { id, before } — insert before/after a group (horizontal indicator)
+  let _hInd     = null;  // .dnd-h-indicator element
 
-  function _getPlaceholder() {
-    if (!_ph) {
-      _ph = document.createElement('div');
-      _ph.className = 'dnd-placeholder';
-    }
-    return _ph;
+  function _getHInd() {
+    if (!_hInd) { _hInd = document.createElement('div'); _hInd.className = 'dnd-h-indicator'; }
+    return _hInd;
   }
-  function _removePh() { _ph?.remove(); }
+  function _removeHInd() { _hInd?.remove(); }
+  function _showHInd(grpEl, before) {
+    const ind = _getHInd();
+    grpEl.parentElement.insertBefore(ind, before ? grpEl : grpEl.nextSibling);
+  }
 
+  function _clearCardTgt() {
+    if (_cardTgt) { _cardTgt.el.classList.remove('dnd-before', 'dnd-after'); _cardTgt = null; }
+  }
   function _clearGrpHighlight() {
     document.querySelectorAll('.seq-group-header.drag-drop-over')
       .forEach(h => h.classList.remove('drag-drop-over'));
@@ -1598,7 +1614,7 @@ App.DnD = (function() {
     grp.classList.add('dragging');
   }
 
-  // ── Card dragover — show precision indicator line ────────
+  // ── Card dragover — vertical box-shadow indicator ────────
   function onCardDragOver(e) {
     if (_dragType !== 'scenes') return;
     e.preventDefault();
@@ -1607,33 +1623,48 @@ App.DnD = (function() {
     if (_dragIds.includes(card.dataset.sceneId)) return;
 
     _clearGrpHighlight();
-    const rect        = card.getBoundingClientRect();
-    const insertBefore = e.clientX < rect.left + rect.width / 2;
-    const ph           = _getPlaceholder();
-    const grid         = card.parentElement; // .scene-grid
-    if (insertBefore) {
-      if (ph.nextElementSibling !== card) grid.insertBefore(ph, card);
-    } else {
-      const after = card.nextElementSibling;
-      if (after !== ph) grid.insertBefore(ph, after ?? null);
+    _removeHInd();
+    _grpTgt = null;
+
+    const before = e.clientX < card.getBoundingClientRect().left + card.offsetWidth / 2;
+    if (_cardTgt?.el !== card || _cardTgt.before !== before) {
+      _clearCardTgt();
+      _cardTgt = { el: card, before };
+      card.classList.add(before ? 'dnd-before' : 'dnd-after');
     }
   }
 
-  // ── Group header dragover — highlight for append ─────────
+  // ── Group header dragover — top half = before; bottom half = append ──
   function onGroupHeaderDragOver(e) {
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'move';
-    const grpEl = e.currentTarget.closest('.seq-group');
+    const header = e.currentTarget;
+    const grpEl  = header.closest('.seq-group');
     if (!grpEl) return;
     const gid = grpEl.dataset.elementId;
     if (_dragType === 'group' && _dragIds[0] === gid) return;
 
-    _removePh();
-    if (_hoverGrp !== gid) {
+    _clearCardTgt();
+
+    const rect    = header.getBoundingClientRect();
+    const topHalf = e.clientY < rect.top + rect.height / 2;
+
+    if (topHalf) {
+      // Insert BEFORE this group — horizontal indicator above
       _clearGrpHighlight();
-      e.currentTarget.classList.add('drag-drop-over');
-      _hoverGrp = gid;
+      _removeHInd();
+      _showHInd(grpEl, true);
+      _grpTgt = { id: gid, before: true };
+    } else {
+      // Append to group — header highlight
+      _removeHInd();
+      _grpTgt = null;
+      if (_hoverGrp !== gid) {
+        _clearGrpHighlight();
+        header.classList.add('drag-drop-over');
+        _hoverGrp = gid;
+      }
     }
   }
 
@@ -1642,17 +1673,18 @@ App.DnD = (function() {
       e.currentTarget.classList.remove('drag-drop-over');
       const gid = e.currentTarget.closest('.seq-group')?.dataset.elementId;
       if (_hoverGrp === gid) _hoverGrp = null;
+      if (_grpTgt?.id === gid) { _grpTgt = null; _removeHInd(); }
     }
   }
 
   // ── Drop helpers ─────────────────────────────────────────
-  function _dropInfo() {
-    if (!_ph?.parentElement) return null;
-    let next = _ph.nextElementSibling;
-    while (next?.classList.contains('dnd-placeholder')) next = next.nextElementSibling;
-    const insertBeforeId = next?.dataset?.sceneId ?? null;
-    // Walk up: scene-grid → seq-group-body or seq-root-body
-    const body      = _ph.parentElement.parentElement;
+  function _cardDropInfo() {
+    if (!_cardTgt) return null;
+    const card = _cardTgt.el;
+    const insertBeforeId = _cardTgt.before
+      ? card.dataset.sceneId
+      : (card.nextElementSibling?.dataset?.sceneId ?? null);
+    const body      = card.parentElement?.parentElement; // .scene-grid → body
     const grpEl     = body?.classList?.contains('seq-group-body') ? body.parentElement : null;
     const parentGrpId = grpEl?.dataset?.elementId ?? null;
     return { insertBeforeId, parentGrpId };
@@ -1680,6 +1712,30 @@ App.DnD = (function() {
         if (tgt?.el?.type === 'group') tgt.el.sequence.push(clone);
       });
     }
+  }
+
+  function _dropNearGroup(gid, before) {
+    App.State.mutateProject(project => {
+      if (_dragType === 'scenes') {
+        const ordered = [];
+        App.Seq.walk(project.sequence, el => { if (_dragIds.includes(el.id)) ordered.push(el); });
+        const clones = ordered.map(el => JSON.parse(JSON.stringify(el)));
+        _dragIds.forEach(id => App.Seq.remove(project.sequence, id));
+        const found = App.Seq.findById(project.sequence, gid);
+        if (!found) return;
+        found.arr.splice(before ? found.index : found.index + 1, 0, ...clones);
+      } else if (_dragType === 'group') {
+        const srcId = _dragIds[0];
+        if (srcId === gid) return;
+        const src = App.Seq.findById(project.sequence, srcId);
+        if (!src) return;
+        const clone = JSON.parse(JSON.stringify(src.el));
+        App.Seq.remove(project.sequence, srcId);
+        const found = App.Seq.findById(project.sequence, gid);
+        if (!found) return;
+        found.arr.splice(before ? found.index : found.index + 1, 0, clone);
+      }
+    });
   }
 
   function _dropInline(insertBeforeId, parentGrpId) {
@@ -1726,10 +1782,10 @@ App.DnD = (function() {
     e.preventDefault();
     e.stopPropagation();
     if (!_dragIds.length) return;
-    if (_hoverGrp) {
-      _dropOntoGroup(_hoverGrp);
-    } else {
-      const info = _dropInfo();
+    if (_grpTgt)     { _dropNearGroup(_grpTgt.id, _grpTgt.before); }
+    else if (_hoverGrp) { _dropOntoGroup(_hoverGrp); }
+    else {
+      const info = _cardDropInfo();
       if (info) _dropInline(info.insertBeforeId, info.parentGrpId);
     }
     _cleanup();
@@ -1739,19 +1795,24 @@ App.DnD = (function() {
     e.preventDefault();
     e.stopPropagation();
     if (!_dragIds.length) return;
-    const gid = e.currentTarget.closest('.seq-group')?.dataset.elementId;
-    if (gid) _dropOntoGroup(gid);
+    if (_grpTgt) { _dropNearGroup(_grpTgt.id, _grpTgt.before); }
+    else {
+      const gid = e.currentTarget.closest('.seq-group')?.dataset.elementId;
+      if (gid) _dropOntoGroup(gid);
+    }
     _cleanup();
   }
 
   function onDragEnd() { _cleanup(); }
 
   function _cleanup() {
-    _removePh();
+    _clearCardTgt();
     _clearGrpHighlight();
+    _removeHInd();
     document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
     _dragIds  = [];
     _dragType = '';
+    _grpTgt   = null;
   }
 
   return {
@@ -2426,7 +2487,6 @@ App.Grid = (function() {
         parentArr.unshift(group);
       }
     });
-    App.State.get('selectedCards').clear();
     App.Filters.updateBulkBar();
     const nameEl = document.querySelector(`.seq-group[data-element-id="${newId}"] .seq-group-name`);
     if (nameEl) _startInlineEdit(newId, nameEl);
@@ -4377,6 +4437,21 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     e.preventDefault();
     App.Undo.perform();
+    return;
+  }
+  if (e.key === 'Escape') {
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    const sel = App.State.get('selectedCards');
+    if (!sel.size) return;
+    const project = App.State.get('project');
+    if (project) App.Undo.push({
+      project: JSON.parse(JSON.stringify(project)),
+      selectedCards: [...sel],
+    });
+    sel.clear();
+    App.Grid?.render();
+    App.Filters?.updateBulkBar();
   }
 });
 document.getElementById('btn-chars').addEventListener('click', () => App.CharMgr.open());

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-05-16 — DnD indicator polish, selection persistence, Escape-to-clear
+
+- **Vertical drop indicator between images**: replaced the full-width horizontal `.dnd-placeholder` line with a `box-shadow` side-bar on the hovered card (`-4px 0 0 var(--accent)` for before, `4px 0 0` for after). This gives a clear vertical line exactly between the two cards rather than a confusing row-wide stripe.
+- **Horizontal indicator when dropping before a group**: group headers now split top/bottom — hovering the top half shows a `.dnd-h-indicator` horizontal line above the group (insert before); hovering the bottom half highlights the header as before (append to group). Groups can also be repositioned relative to each other this way.
+- **Selection survives grouping**: `createGroupFromSelection` no longer clears `selectedCards` after the operation. The grouped scenes remain highlighted inside their new group, so the user can immediately act on them again.
+- **Escape clears selection (undoably)**: pressing Escape when cards are selected pushes a full undo snapshot (including the current selection), then clears `selectedCards` and re-renders. Ctrl+Z restores both the project state AND the selection that was active before the clear. Individual Ctrl+click selection changes are NOT recorded in the undo stack; only the batch-clear is.
+- **Undo snapshots include selection**: every `mutateProject` call now snapshots `{ project, selectedCards }` instead of just the project. Performing undo restores the project to its pre-mutation state AND re-applies the selection that was active at that moment.
+
 ## 2026-05-16 — Undo system, improved DnD, selection-aware movement buttons
 
 - **Undo system**: `App.Undo` module with 50-step stack persisted per-project in `localStorage`. `mutateProject` pushes a deep snapshot before every mutation (except the initial `reconcileScenes` scan). `App.State.restoreProject()` restores a snapshot directly without triggering another undo push. The ↩ Undo button in the header is disabled when the stack is empty; Ctrl+Z (or ⌘Z) also triggers undo. The stack is loaded from localStorage when opening a project, so undo history survives page reloads.
