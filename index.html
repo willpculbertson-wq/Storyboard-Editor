@@ -2261,6 +2261,12 @@ App.Grid = (function() {
         }
         App.Filters.updateBulkBar();
       } else {
+        // Plain click — clear multi-selection (filesystem behaviour)
+        if (sc.size > 0) {
+          sc.clear();
+          document.querySelectorAll('.scene-card.selected').forEach(c => c.classList.remove('selected'));
+          App.Filters.updateBulkBar();
+        }
         _lastClickedId = scene.id;
         App.Editor.open(scene.id);
       }
