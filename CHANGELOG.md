@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-05-16 — Collapsed thumbnails 3+3, cutout sequence badges, header UX
+
+- **Collapsed group preview now shows first 3 + badge + last 3** thumbnails (≤6 images → show all; >6 → first 3 · count badge · last 3). Thumb size reduced to 50×31 px.
+- **Cutout sequence number badge** on every image card: semi-transparent gray pill centered on the image. The number is punched out as a transparent hole using CSS `isolation: isolate` + `mix-blend-mode: destination-out`, showing the image through the digit shapes. 1–2 digit numbers produce a circle; longer numbers auto-expand to an oval via `border-radius: 9999px` + `min-width: 28px`.
+- **Global sequence numbering**: computed via `_buildSequenceNumbers()` — a depth-first walk that assigns 1…N across the entire project. Branch lanes each get their own letter suffix (lane 0 = `a`, lane 1 = `b`, …); both lanes start counting from the pre-split position; after rejoin the counter continues from the highest lane value.
+- **Group header click-to-collapse**: the full header bar (except the name text and the order buttons) now toggles expand/collapse on click. The arrow is now a purely visual indicator (`pointer-events: none`). Group name is `flex: 0 0 auto` (shrinks to text width) with `margin-left: auto` on the count pushing the right-side controls to the far right — so only clicking the literal label text enters rename mode.
+
 ## 2026-05-15 — Fix grid filter, selection grouping, and add jump-to-top/bottom for groups
 
 - **Grid view now respects filters**: extracted `_passesFilter(scene, filter)` helper; `_renderSequenceInto` calls it per scene so excluded (and other filtered-out) images are hidden in grid mode, not just list/focus mode.

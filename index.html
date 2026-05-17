@@ -124,7 +124,18 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .scene-card{
   position:relative;aspect-ratio:16/9;background:var(--bg-2);border-radius:var(--radius);
   overflow:hidden;cursor:pointer;border:3px solid transparent;
-  transition:border-color .1s,opacity .1s;user-select:none;
+  transition:border-color .1s,opacity .1s;user-select:none;isolation:isolate;
+}
+.seq-num-badge{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  isolation:isolate;background:rgba(140,140,140,.6);border-radius:9999px;
+  min-width:28px;height:28px;padding:0 7px;box-sizing:border-box;
+  display:flex;align-items:center;justify-content:center;pointer-events:none;
+}
+.seq-num-badge span{
+  color:#fff;mix-blend-mode:destination-out;
+  font-size:11px;font-weight:800;line-height:1;
+  white-space:nowrap;font-variant-numeric:tabular-nums;
 }
 .scene-card img{width:100%;height:100%;object-fit:cover;display:block}
 .scene-card[data-status="included"]{border-color:var(--green)}
@@ -495,13 +506,12 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .seq-group[data-depth="3"]{border-color:#6a4a8f;margin-left:16px}
 .seq-group-header{
   display:flex;align-items:center;gap:6px;padding:6px 10px;
-  cursor:grab;background:var(--bg-2);user-select:none;border-bottom:1px solid var(--border);
+  cursor:pointer;background:var(--bg-2);user-select:none;border-bottom:1px solid var(--border);
 }
-.seq-group-header:active{cursor:grabbing}
-.seq-group-arrow{font-size:10px;transition:transform .15s;cursor:pointer;flex-shrink:0}
+.seq-group-arrow{font-size:10px;transition:transform .15s;flex-shrink:0;pointer-events:none}
 .seq-group.collapsed .seq-group-arrow{transform:rotate(-90deg)}
 .seq-group-name{
-  flex:1;font-weight:600;cursor:pointer;
+  flex:0 0 auto;font-weight:600;cursor:text;
   border:1px solid transparent;border-radius:3px;padding:1px 3px;
 }
 .seq-group-name:hover{border-color:var(--border)}
@@ -512,7 +522,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .seq-group[data-depth="0"] .seq-group-name-input{font-size:15px}
 .seq-group[data-depth="1"] .seq-group-name-input{font-size:13px}
 .seq-group[data-depth="2"] .seq-group-name-input,.seq-group[data-depth="3"] .seq-group-name-input{font-size:12px}
-.seq-group-count{font-size:11px;color:var(--text-2);white-space:nowrap}
+.seq-group-count{font-size:11px;color:var(--text-2);white-space:nowrap;margin-left:auto}
 .seq-group-order-btn{
   background:transparent;color:var(--text-2);padding:1px 5px;font-size:12px;
   border-radius:2px;opacity:.45;flex-shrink:0;line-height:1.2;
@@ -520,9 +530,9 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .seq-group-order-btn:hover{background:var(--bg-3);color:var(--text-0);opacity:1}
 .seq-group-body{padding:8px;display:flex;flex-direction:column;gap:8px}
 .seq-group.collapsed .seq-group-body{display:none}
-.seq-group-preview{display:none;align-items:center;gap:10px;padding:8px 10px}
+.seq-group-preview{display:none;align-items:center;gap:6px;padding:8px 10px;flex-wrap:wrap}
 .seq-group.collapsed .seq-group-preview{display:flex}
-.seq-group-thumb{width:60px;height:38px;object-fit:cover;border-radius:2px;flex-shrink:0}
+.seq-group-thumb{width:50px;height:31px;object-fit:cover;border-radius:2px;flex-shrink:0}
 .seq-group-badge{
   font-size:12px;font-weight:600;background:var(--bg-3);border:1px solid var(--border);
   border-radius:12px;padding:3px 10px;color:var(--text-1);white-space:nowrap;
@@ -1589,6 +1599,37 @@ App.Grid = (function() {
   let _initialized = false;
   let _lastFilteredScenes = [];
   let _lastClickedId = null;
+  let _seqNumMap = new Map(); // sceneId → { num, letter }
+
+  // Build a global sequence-number map. Branch lanes share a starting counter
+  // and each gets a letter suffix (a, b, c…). After rejoining, the counter
+  // advances past the highest lane.
+  function _buildSequenceNumbers(sequence) {
+    const map = new Map();
+    const ctr = { n: 0 };
+    function _walk(seq, letter) {
+      for (const el of seq) {
+        if (el.type === 'scene') {
+          ctr.n++;
+          map.set(el.id, { num: ctr.n, letter: letter || null });
+        } else if (el.type === 'group') {
+          _walk(el.sequence || [], letter);
+        } else if (el.type === 'branch_split') {
+          const startN = ctr.n;
+          let peakN = startN;
+          (el.lanes || []).forEach((lane, i) => {
+            const laneLetter = String.fromCharCode(97 + i);
+            ctr.n = startN;
+            _walk(lane.sequence || [], laneLetter);
+            peakN = Math.max(peakN, ctr.n);
+          });
+          ctr.n = peakN;
+        }
+      }
+    }
+    _walk(sequence, null);
+    return map;
+  }
   const _collapsedFolders = new Set(
     JSON.parse(localStorage.getItem('storyboard_collapsedFolders') || '[]'));
 
@@ -1729,6 +1770,7 @@ App.Grid = (function() {
     _inner.innerHTML = '';
 
     const project = App.State.get('project');
+    _seqNumMap = _buildSequenceNumbers(project.sequence);
     const rootName = project.rootName || 'All Images';
     const totalScenes = App.Seq.flatScenes(sequence).length;
 
@@ -1877,6 +1919,16 @@ App.Grid = (function() {
     card.appendChild(img);
     card.appendChild(label);
 
+    const seqInfo = _seqNumMap.get(scene.id);
+    if (seqInfo) {
+      const badge = document.createElement('div');
+      badge.className = 'seq-num-badge';
+      const numSpan = document.createElement('span');
+      numSpan.textContent = seqInfo.letter ? `${seqInfo.num}${seqInfo.letter}` : `${seqInfo.num}`;
+      badge.appendChild(numSpan);
+      card.appendChild(badge);
+    }
+
     card.addEventListener('click', e => {
       const sc = App.State.get('selectedCards');
       if (e.ctrlKey || e.metaKey) {
@@ -1929,13 +1981,6 @@ App.Grid = (function() {
     const arrow = document.createElement('span');
     arrow.className = 'seq-group-arrow';
     arrow.textContent = '▾';
-    arrow.addEventListener('click', e => {
-      e.stopPropagation();
-      App.State.mutateProject(project => {
-        const found = App.Seq.findById(project.sequence, el.id);
-        if (found) found.el.collapsed = !found.el.collapsed;
-      });
-    });
 
     const name = document.createElement('span');
     name.className = 'seq-group-name';
@@ -1980,23 +2025,33 @@ App.Grid = (function() {
     header.appendChild(btnUp);
     header.appendChild(btnDown);
     header.appendChild(btnBottom);
+    header.addEventListener('click', () => {
+      App.State.mutateProject(project => {
+        const found = App.Seq.findById(project.sequence, el.id);
+        if (found) found.el.collapsed = !found.el.collapsed;
+      });
+    });
     header.addEventListener('contextmenu', e => {
       e.preventDefault(); e.stopPropagation();
       App.CtxMenu.show(e.clientX, e.clientY, el.id);
     });
     group.appendChild(header);
 
-    // Collapsed preview: first thumb → count badge → last thumb
+    // Collapsed preview: ≤6 scenes → all thumbs; >6 → first 3 + badge + last 3
     const preview = document.createElement('div');
     preview.className = 'seq-group-preview';
     const scenes = App.Seq.flatScenes(el.sequence || []);
     if (scenes.length > 0) {
-      preview.appendChild(_makeGroupThumb(scenes[0]));
-      const badge = document.createElement('span');
-      badge.className = 'seq-group-badge';
-      badge.textContent = `${sceneCount} scene${sceneCount !== 1 ? 's' : ''}`;
-      preview.appendChild(badge);
-      if (scenes.length > 1) preview.appendChild(_makeGroupThumb(scenes[scenes.length - 1]));
+      if (scenes.length <= 6) {
+        scenes.forEach(s => preview.appendChild(_makeGroupThumb(s)));
+      } else {
+        scenes.slice(0, 3).forEach(s => preview.appendChild(_makeGroupThumb(s)));
+        const badge = document.createElement('span');
+        badge.className = 'seq-group-badge';
+        badge.textContent = `${sceneCount} scene${sceneCount !== 1 ? 's' : ''}`;
+        preview.appendChild(badge);
+        scenes.slice(-3).forEach(s => preview.appendChild(_makeGroupThumb(s)));
+      }
     }
     group.appendChild(preview);
 
