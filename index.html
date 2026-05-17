@@ -569,6 +569,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
   margin-bottom:2px;
 }
 .seq-lane-empty{font-size:11px;color:var(--text-2);padding:8px 4px;font-style:italic}
+.seq-lane.drag-over{background:rgba(59,130,246,.08);outline:2px dashed var(--accent);outline-offset:-2px}
 
 /* Context menu */
 #ctx-menu{
@@ -585,10 +586,10 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .ctx-sep{height:1px;background:var(--border);margin:4px 0}
 
 /* DnD indicators */
-.scene-card.dnd-before{box-shadow:-4px 0 0 var(--accent)}
-.scene-card.dnd-after {box-shadow: 4px 0 0 var(--accent)}
-.dnd-h-indicator{height:3px;background:var(--accent);border-radius:2px;box-shadow:0 0 6px rgba(59,130,246,.45);pointer-events:none;flex-shrink:0}
-.seq-group-header.drag-drop-over{background:rgba(59,130,246,.12)!important;outline:1px solid var(--accent)}
+.scene-card.dnd-before{box-shadow:-6px 0 0 var(--accent),-12px 0 8px -4px rgba(59,130,246,.4)}
+.scene-card.dnd-after {box-shadow: 6px 0 0 var(--accent), 12px 0 8px -4px rgba(59,130,246,.4)}
+.dnd-h-indicator{height:4px;background:var(--accent);border-radius:2px;box-shadow:0 0 10px rgba(59,130,246,.6),0 0 3px rgba(59,130,246,.8);pointer-events:none;flex-shrink:0}
+.seq-group-header.drag-drop-over{background:rgba(59,130,246,.12)!important;outline:2px solid var(--accent)}
 .seq-group.dragging{opacity:.35}
 
 /* Disabled button base */
@@ -1713,10 +1714,13 @@ App.DnD = (function() {
     const insertBeforeId = _cardTgt.before
       ? card.dataset.sceneId
       : (card.nextElementSibling?.dataset?.sceneId ?? null);
-    const body      = card.parentElement?.parentElement; // .scene-grid → body
+    const body      = card.parentElement?.parentElement; // .scene-grid → container
     const grpEl     = body?.classList?.contains('seq-group-body') ? body.parentElement : null;
     const parentGrpId = grpEl?.dataset?.elementId ?? null;
-    return { insertBeforeId, parentGrpId };
+    const laneEl    = body?.classList?.contains('seq-lane') ? body : null;
+    const laneId    = laneEl?.dataset?.laneId ?? null;
+    const branchId  = laneEl?.dataset?.branchId ?? null;
+    return { insertBeforeId, parentGrpId, laneId, branchId };
   }
 
   function _dropOntoGroup(gid) {
@@ -1767,18 +1771,29 @@ App.DnD = (function() {
     });
   }
 
-  function _dropInline(insertBeforeId, parentGrpId) {
+  function _resolveTargetSeq(project, parentGrpId, laneId, branchId) {
+    if (laneId && branchId) {
+      const branch = App.Seq.findById(project.sequence, branchId);
+      if (branch?.el?.lanes) {
+        const lane = branch.el.lanes.find(l => l.id === laneId);
+        if (lane) { if (!lane.sequence) lane.sequence = []; return lane.sequence; }
+      }
+    }
+    if (parentGrpId) {
+      const g = App.Seq.findById(project.sequence, parentGrpId);
+      if (g?.el?.sequence) return g.el.sequence;
+    }
+    return project.sequence;
+  }
+
+  function _dropInline(insertBeforeId, parentGrpId, laneId, branchId) {
     if (_dragType === 'scenes') {
       App.State.mutateProject(project => {
         const ordered = [];
         App.Seq.walk(project.sequence, el => { if (_dragIds.includes(el.id)) ordered.push(el); });
         const clones = ordered.map(el => JSON.parse(JSON.stringify(el)));
         _dragIds.forEach(id => App.Seq.remove(project.sequence, id));
-        let seq = project.sequence;
-        if (parentGrpId) {
-          const g = App.Seq.findById(project.sequence, parentGrpId);
-          if (g?.el?.sequence) seq = g.el.sequence;
-        }
+        const seq = _resolveTargetSeq(project, parentGrpId, laneId, branchId);
         if (insertBeforeId) {
           const idx = seq.findIndex(el => el.id === insertBeforeId);
           if (idx >= 0) { seq.splice(idx, 0, ...clones); return; }
@@ -1792,11 +1807,7 @@ App.DnD = (function() {
         if (!src) return;
         const clone = JSON.parse(JSON.stringify(src.el));
         App.Seq.remove(project.sequence, srcId);
-        let seq = project.sequence;
-        if (parentGrpId) {
-          const g = App.Seq.findById(project.sequence, parentGrpId);
-          if (g?.el?.sequence) seq = g.el.sequence;
-        }
+        const seq = _resolveTargetSeq(project, parentGrpId, laneId, branchId);
         if (insertBeforeId) {
           const idx = seq.findIndex(el => el.id === insertBeforeId);
           if (idx >= 0) { seq.splice(idx, 0, clone); return; }
@@ -1815,7 +1826,7 @@ App.DnD = (function() {
     else if (_hoverGrp) { _dropOntoGroup(_hoverGrp); }
     else {
       const info = _cardDropInfo();
-      if (info) _dropInline(info.insertBeforeId, info.parentGrpId);
+      if (info) _dropInline(info.insertBeforeId, info.parentGrpId, info.laneId, info.branchId);
     }
     _cleanup();
   }
@@ -1834,11 +1845,20 @@ App.DnD = (function() {
 
   function onDragEnd() { _cleanup(); }
 
+  function dropOntoLane(laneId, branchId) {
+    if (!_dragIds.length) return;
+    _dropInline(null, null, laneId, branchId);
+    _cleanup();
+  }
+
+  function hasDrag() { return _dragIds.length > 0; }
+
   function _cleanup() {
     _clearCardTgt();
     _clearGrpHighlight();
     _removeHInd();
     document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+    document.querySelectorAll('.seq-lane.drag-over').forEach(el => el.classList.remove('drag-over'));
     _dragIds  = [];
     _dragType = '';
     _grpTgt   = null;
@@ -1848,7 +1868,7 @@ App.DnD = (function() {
     onSceneDragStart, onGroupDragStart,
     onCardDragOver,   onCardDrop,
     onGroupHeaderDragOver, onGroupHeaderDragLeave, onGroupHeaderDrop,
-    onDragEnd,
+    onDragEnd, dropOntoLane, hasDrag,
   };
 })();
 
@@ -2054,16 +2074,35 @@ App.Grid = (function() {
     App.DnD.onSceneDragStart(e, card);
   }
 
+  function _clearLaneHighlight() {
+    document.querySelectorAll('.seq-lane.drag-over').forEach(el => el.classList.remove('drag-over'));
+  }
+
   function _onCardDragOver(e) {
     const card = e.target.closest('.scene-card');
-    if (!card || !_inner.contains(card)) return;
-    App.DnD.onCardDragOver(e, card);
+    if (card && _inner.contains(card)) { _clearLaneHighlight(); App.DnD.onCardDragOver(e, card); return; }
+    const lane = e.target.closest('.seq-lane');
+    if (lane && _inner.contains(lane) && App.DnD.hasDrag()) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (!lane.classList.contains('drag-over')) {
+        _clearLaneHighlight();
+        lane.classList.add('drag-over');
+      }
+    } else {
+      _clearLaneHighlight();
+    }
   }
 
   function _onCardDrop(e) {
     const card = e.target.closest('.scene-card');
-    if (!card || !_inner.contains(card)) return;
-    App.DnD.onCardDrop(e);
+    if (card && _inner.contains(card)) { App.DnD.onCardDrop(e); return; }
+    const lane = e.target.closest('.seq-lane');
+    if (lane && _inner.contains(lane) && App.DnD.hasDrag()) {
+      e.preventDefault();
+      e.stopPropagation();
+      App.DnD.dropOntoLane(lane.dataset.laneId, lane.dataset.branchId);
+    }
   }
 
   function _onCardDragEnd(e) {
@@ -2253,6 +2292,8 @@ App.Grid = (function() {
         if (found) found.el.name = val;
       });
     }
+    input.addEventListener('mousedown', e => e.stopPropagation());
+    input.addEventListener('click', e => e.stopPropagation());
     input.addEventListener('blur', commit);
     input.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
@@ -2496,6 +2537,8 @@ App.Grid = (function() {
     (branchEl.lanes || []).forEach((lane, i) => {
       const laneDiv = document.createElement('div');
       laneDiv.className = 'seq-lane';
+      laneDiv.dataset.laneId = lane.id;
+      laneDiv.dataset.branchId = branchEl.id;
       const laneHeader = document.createElement('div');
       laneHeader.className = 'seq-lane-header';
       laneHeader.textContent = lane.label || `Lane ${i + 1}`;
@@ -2503,7 +2546,7 @@ App.Grid = (function() {
       if (!lane.sequence || lane.sequence.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'seq-lane-empty';
-        empty.textContent = 'No scenes in this lane';
+        empty.textContent = 'Drop scenes here';
         laneDiv.appendChild(empty);
       } else {
         _renderSequenceInto(lane.sequence, laneDiv);

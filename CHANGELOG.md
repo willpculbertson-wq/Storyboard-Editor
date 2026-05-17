@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-17 — Fix inline edit, add lane drops, improve DnD indicators
+
+- **Group name inline edit fix**: added `mousedown`/`click` `stopPropagation` on the input element so clicks within the text field don't bubble to the header's collapse handler.
+- **Branch lane drop zones**: lanes now accept drag-and-drop of scenes, selections, and groups. Added `data-lane-id`/`data-branch-id` attributes to lane divs, delegated dragover/drop handlers for `.seq-lane` targets, a `_resolveTargetSeq` helper for lane-aware insertion, and visual feedback (dashed outline + tinted background on hover). Empty lanes now show "Drop scenes here" text.
+- **More prominent DnD indicators**: vertical card indicators now use a 6px bar with a blue glow spread; horizontal group indicators are 4px tall with stronger glow; group header drag-over outline is 2px.
+
 ## 2026-05-17 — Performance optimizations
 
 - **Throttle concurrent thumbnail loads**: `App.LazyLoader` now limits to 4 simultaneous `handle.getFile()` calls via a queue, preventing saturation of the File System Access API when scrolling rapidly through hundreds of images.
