@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-05-17 — Performance optimizations
+
+- **Throttle concurrent thumbnail loads**: `App.LazyLoader` now limits to 4 simultaneous `handle.getFile()` calls via a queue, preventing saturation of the File System Access API when scrolling rapidly through hundreds of images.
+- **Event delegation for card interactions**: replaced 6 per-card `addEventListener` calls in `_buildCard` (click, contextmenu, dragstart, dragover, drop, dragend) with a single set of delegated handlers on `#image-grid-inner`. Eliminates ~3000 closure allocations for large projects.
+- **Deferred undo localStorage writes**: `App.Undo.push()` now debounces the `localStorage.setItem` call by 2 seconds, removing a synchronous multi-MB JSON serialization from the DnD hot path. Undo/pop still persists immediately.
+- **Lazy-load group preview thumbnails**: collapsed group previews now route their thumbnail `<img>` elements through `App.LazyLoader.observe()` instead of eagerly calling `handle.getFile()`. Each preview thumb is wrapped in a `<div data-scene-id>` for LazyLoader compatibility.
+- **Cache group scene counts**: `_buildSequenceNumbers` now also computes a `Map<groupId, sceneCount>` as a side-effect, eliminating redundant `flatScenes()` recursive walks in `_buildGroup`.
+
 ## 2026-05-16 — DnD indicator polish, selection persistence, Escape-to-clear
 
 - **Vertical drop indicator between images**: replaced the full-width horizontal `.dnd-placeholder` line with a `box-shadow` side-bar on the hovered card (`-4px 0 0 var(--accent)` for before, `4px 0 0` for after). This gives a clear vertical line exactly between the two cards rather than a confusing row-wide stripe.

@@ -532,6 +532,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .seq-group.collapsed .seq-group-body{display:none}
 .seq-group-preview{display:none;align-items:center;gap:6px;padding:8px 10px;flex-wrap:wrap}
 .seq-group.collapsed .seq-group-preview{display:flex}
+.seq-group-thumb-wrap{flex-shrink:0;line-height:0}
 .seq-group-thumb{width:50px;height:31px;object-fit:cover;border-radius:2px;flex-shrink:0}
 .seq-group-badge{
   font-size:12px;font-weight:600;background:var(--bg-3);border:1px solid var(--border);
@@ -1229,10 +1230,22 @@ function migrateProject(p) {
 App.Undo = (function() {
   const LIMIT = 50;
   let _stack = []; // array of JSON strings (project snapshots)
+  let _persistTimer = null;
 
   function _key() {
     const p = App.State?.get('project');
     return p ? `storyboard_undo_${p.project.id}` : 'storyboard_undo_default';
+  }
+
+  function _persist() {
+    clearTimeout(_persistTimer);
+    _persistTimer = null;
+    try { localStorage.setItem(_key(), JSON.stringify(_stack)); } catch(e) {}
+  }
+
+  function _deferPersist() {
+    clearTimeout(_persistTimer);
+    _persistTimer = setTimeout(_persist, 2000);
   }
 
   function _updateBtn() {
@@ -1243,14 +1256,14 @@ App.Undo = (function() {
   function push(snapshot) {
     _stack.push(JSON.stringify(snapshot));
     if (_stack.length > LIMIT) _stack.shift();
-    try { localStorage.setItem(_key(), JSON.stringify(_stack)); } catch(e) {}
+    _deferPersist();
     _updateBtn();
   }
 
   function pop() {
     if (!_stack.length) return null;
     const snap = JSON.parse(_stack.pop());
-    try { localStorage.setItem(_key(), JSON.stringify(_stack)); } catch(e) {}
+    _persist();
     _updateBtn();
     return snap;
   }
@@ -1259,6 +1272,7 @@ App.Undo = (function() {
 
   function clear() {
     _stack = [];
+    clearTimeout(_persistTimer);
     try { localStorage.removeItem(_key()); } catch(e) {}
     _updateBtn();
   }
@@ -1274,7 +1288,6 @@ App.Undo = (function() {
   function perform() {
     const snap = pop();
     if (!snap) return;
-    // Support both new format { project, selectedCards } and old format (raw project object)
     const projectSnap = (snap && Array.isArray(snap.selectedCards)) ? snap.project : snap;
     const selSnap     = (snap && Array.isArray(snap.selectedCards)) ? snap.selectedCards : [];
     const sel = App.State.get('selectedCards');
@@ -1512,9 +1525,14 @@ function reconcileScenes(imageFiles) {
 // ═══════════════════════════════════════════════════════
 App.LazyLoader = (function() {
   let _observer = null;
+  const _loadQueue = [];
+  let _activeLoads = 0;
+  const _MAX_CONCURRENT = 4;
 
   function init() {
     if (_observer) _observer.disconnect();
+    _loadQueue.length = 0;
+    _activeLoads = 0;
     _observer = new IntersectionObserver(_onIntersect, {
       root: document.getElementById('image-grid'),
       rootMargin: '300px 0px',
@@ -1522,31 +1540,39 @@ App.LazyLoader = (function() {
     });
   }
 
-  async function _onIntersect(entries) {
+  function _onIntersect(entries) {
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
       const card = entry.target;
       const img = card.querySelector('img');
       if (!img || img.src) continue;
       _observer.unobserve(card);
+      _loadQueue.push({ card, img });
+    }
+    _processQueue();
+  }
 
+  function _processQueue() {
+    while (_activeLoads < _MAX_CONCURRENT && _loadQueue.length > 0) {
+      const { card, img } = _loadQueue.shift();
       const scene = App.State.get('_sceneIndex').get(card.dataset.sceneId);
       if (!scene) continue;
       const assetPath = scene.asset.path;
-
       const thumbCache = App.State.get('thumbnailCache');
       if (thumbCache.has(assetPath)) { img.src = thumbCache.get(assetPath); continue; }
-
       const handle = App.State.get('fileHandleCache').get(assetPath);
       if (!handle) continue;
-      try {
-        const file = await handle.getFile();
+      _activeLoads++;
+      handle.getFile().then(file => {
         const url = URL.createObjectURL(file);
         thumbCache.set(assetPath, url);
         img.src = url;
-      } catch (e) {
+      }).catch(e => {
         if (e.name === 'NotFoundError') card.classList.add('file-missing');
-      }
+      }).finally(() => {
+        _activeLoads--;
+        _processQueue();
+      });
     }
   }
 
@@ -1554,6 +1580,8 @@ App.LazyLoader = (function() {
 
   function teardown() {
     if (_observer) _observer.disconnect();
+    _loadQueue.length = 0;
+    _activeLoads = 0;
     App.State.get('thumbnailCache').forEach(url => URL.revokeObjectURL(url));
     App.State.get('thumbnailCache').clear();
   }
@@ -1592,8 +1620,9 @@ App.DnD = (function() {
   }
 
   // ── Drag start ───────────────────────────────────────────
-  function onSceneDragStart(e) {
-    const id  = e.currentTarget.dataset.sceneId;
+  function onSceneDragStart(e, card) {
+    if (!card) card = e.currentTarget;
+    const id  = card.dataset.sceneId;
     const sel = App.State.get('selectedCards');
     _dragIds  = (sel.size > 0 && sel.has(id)) ? [...sel] : [id];
     _dragType = 'scenes';
@@ -1615,11 +1644,11 @@ App.DnD = (function() {
   }
 
   // ── Card dragover — vertical box-shadow indicator ────────
-  function onCardDragOver(e) {
+  function onCardDragOver(e, card) {
     if (_dragType !== 'scenes') return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    const card = e.currentTarget;
+    if (!card) card = e.currentTarget;
     if (_dragIds.includes(card.dataset.sceneId)) return;
 
     _clearGrpHighlight();
@@ -1914,12 +1943,11 @@ App.Grid = (function() {
   let _lastFilteredScenes = [];
   let _lastClickedId = null;
   let _seqNumMap = new Map(); // sceneId → { num, letter }
+  let _groupSceneCountMap = new Map(); // groupId → number of flat scenes
 
-  // Build a global sequence-number map. Branch lanes share a starting counter
-  // and each gets a letter suffix (a, b, c…). After rejoining, the counter
-  // advances past the highest lane.
   function _buildSequenceNumbers(sequence) {
     const map = new Map();
+    const groupCounts = new Map();
     const ctr = { n: 0 };
     function _walk(seq, letter) {
       for (const el of seq) {
@@ -1927,7 +1955,9 @@ App.Grid = (function() {
           ctr.n++;
           map.set(el.id, { num: ctr.n, letter: letter || null });
         } else if (el.type === 'group') {
+          const before = ctr.n;
           _walk(el.sequence || [], letter);
+          groupCounts.set(el.id, ctr.n - before);
         } else if (el.type === 'branch_split') {
           const startN = ctr.n;
           let peakN = startN;
@@ -1942,6 +1972,7 @@ App.Grid = (function() {
       }
     }
     _walk(sequence, null);
+    _groupSceneCountMap = groupCounts;
     return map;
   }
   const _collapsedFolders = new Set(
@@ -1979,14 +2010,79 @@ App.Grid = (function() {
 
   let _pickerOpen = false;
 
+  function _onCardClick(e) {
+    const card = e.target.closest('.scene-card');
+    if (!card || !_inner.contains(card)) return;
+    const sceneId = card.dataset.sceneId;
+    const sc = App.State.get('selectedCards');
+    if (e.ctrlKey || e.metaKey) {
+      if (sc.has(sceneId)) sc.delete(sceneId); else sc.add(sceneId);
+      card.classList.toggle('selected', sc.has(sceneId));
+      _lastClickedId = sceneId;
+      App.Filters.updateBulkBar();
+    } else if (e.shiftKey && _lastClickedId) {
+      const scenes = App.Seq.flatScenes(App.State.get('project').sequence);
+      const a = scenes.findIndex(s => s.id === _lastClickedId);
+      const b = scenes.findIndex(s => s.id === sceneId);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = [Math.min(a, b), Math.max(a, b)];
+        scenes.slice(lo, hi + 1).forEach(s => sc.add(s.id));
+        render();
+      }
+      App.Filters.updateBulkBar();
+    } else {
+      if (sc.size > 0) {
+        sc.clear();
+        document.querySelectorAll('.scene-card.selected').forEach(c => c.classList.remove('selected'));
+        App.Filters.updateBulkBar();
+      }
+      _lastClickedId = sceneId;
+      App.Editor.open(sceneId);
+    }
+  }
+
+  function _onCardContextMenu(e) {
+    const card = e.target.closest('.scene-card');
+    if (!card || !_inner.contains(card)) return;
+    e.preventDefault(); e.stopPropagation();
+    App.CtxMenu.show(e.clientX, e.clientY, card.dataset.sceneId);
+  }
+
+  function _onCardDragStart(e) {
+    const card = e.target.closest('.scene-card');
+    if (!card || !_inner.contains(card)) return;
+    App.DnD.onSceneDragStart(e, card);
+  }
+
+  function _onCardDragOver(e) {
+    const card = e.target.closest('.scene-card');
+    if (!card || !_inner.contains(card)) return;
+    App.DnD.onCardDragOver(e, card);
+  }
+
+  function _onCardDrop(e) {
+    const card = e.target.closest('.scene-card');
+    if (!card || !_inner.contains(card)) return;
+    App.DnD.onCardDrop(e);
+  }
+
+  function _onCardDragEnd(e) {
+    App.DnD.onDragEnd(e);
+  }
+
   function init() {
     _inner = document.getElementById('image-grid-inner');
     if (!_initialized) {
       App.State.subscribe('projectChange', render);
       App.State.subscribe('filterChange', render);
       App.State.subscribe('viewMode', render);
-      // Set initial view class on app-shell
       document.getElementById('app-shell').classList.add('view-' + App.State.get('viewMode'));
+      _inner.addEventListener('click', _onCardClick);
+      _inner.addEventListener('contextmenu', _onCardContextMenu);
+      _inner.addEventListener('dragstart', _onCardDragStart);
+      _inner.addEventListener('dragover', _onCardDragOver);
+      _inner.addEventListener('drop', _onCardDrop);
+      _inner.addEventListener('dragend', _onCardDragEnd);
       // Close column picker when clicking outside
       document.addEventListener('click', e => {
         if (!_pickerOpen) return;
@@ -2243,45 +2339,6 @@ App.Grid = (function() {
       card.appendChild(badge);
     }
 
-    card.addEventListener('click', e => {
-      const sc = App.State.get('selectedCards');
-      if (e.ctrlKey || e.metaKey) {
-        if (sc.has(scene.id)) sc.delete(scene.id); else sc.add(scene.id);
-        card.classList.toggle('selected', sc.has(scene.id));
-        _lastClickedId = scene.id;
-        App.Filters.updateBulkBar();
-      } else if (e.shiftKey && _lastClickedId) {
-        const scenes = App.Seq.flatScenes(App.State.get('project').sequence);
-        const a = scenes.findIndex(s => s.id === _lastClickedId);
-        const b = scenes.findIndex(s => s.id === scene.id);
-        if (a >= 0 && b >= 0) {
-          const [lo, hi] = [Math.min(a, b), Math.max(a, b)];
-          scenes.slice(lo, hi + 1).forEach(s => sc.add(s.id));
-          render();
-        }
-        App.Filters.updateBulkBar();
-      } else {
-        // Plain click — clear multi-selection (filesystem behaviour)
-        if (sc.size > 0) {
-          sc.clear();
-          document.querySelectorAll('.scene-card.selected').forEach(c => c.classList.remove('selected'));
-          App.Filters.updateBulkBar();
-        }
-        _lastClickedId = scene.id;
-        App.Editor.open(scene.id);
-      }
-    });
-
-    card.addEventListener('contextmenu', e => {
-      e.preventDefault(); e.stopPropagation();
-      App.CtxMenu.show(e.clientX, e.clientY, scene.id);
-    });
-
-    card.addEventListener('dragstart', App.DnD.onSceneDragStart);
-    card.addEventListener('dragover',  App.DnD.onCardDragOver);
-    card.addEventListener('drop',      App.DnD.onCardDrop);
-    card.addEventListener('dragend',   App.DnD.onDragEnd);
-
     return card;
   }
 
@@ -2292,7 +2349,7 @@ App.Grid = (function() {
     group.dataset.elementId = el.id;
     group.dataset.depth = Math.min(depth, 3);
 
-    const sceneCount = App.Seq.flatScenes(el.sequence || []).length;
+    const sceneCount = _groupSceneCountMap.get(el.id) || 0;
 
     const header = document.createElement('div');
     header.className = 'seq-group-header';
@@ -2362,20 +2419,19 @@ App.Grid = (function() {
     });
     group.appendChild(header);
 
-    // Collapsed preview: ≤6 scenes → all thumbs; >6 → first 3 + badge + last 3
     const preview = document.createElement('div');
     preview.className = 'seq-group-preview';
-    const scenes = App.Seq.flatScenes(el.sequence || []);
-    if (scenes.length > 0) {
+    if (sceneCount > 0) {
+      const scenes = App.Seq.flatScenes(el.sequence || []);
       if (scenes.length <= 6) {
-        scenes.forEach(s => preview.appendChild(_makeGroupThumb(s)));
+        scenes.forEach(s => { const w = _makeGroupThumb(s); preview.appendChild(w); App.LazyLoader.observe(w); });
       } else {
-        scenes.slice(0, 3).forEach(s => preview.appendChild(_makeGroupThumb(s)));
+        scenes.slice(0, 3).forEach(s => { const w = _makeGroupThumb(s); preview.appendChild(w); App.LazyLoader.observe(w); });
         const badge = document.createElement('span');
         badge.className = 'seq-group-badge';
         badge.textContent = `${sceneCount} scene${sceneCount !== 1 ? 's' : ''}`;
         preview.appendChild(badge);
-        scenes.slice(-3).forEach(s => preview.appendChild(_makeGroupThumb(s)));
+        scenes.slice(-3).forEach(s => { const w = _makeGroupThumb(s); preview.appendChild(w); App.LazyLoader.observe(w); });
       }
     }
     group.appendChild(preview);
@@ -2389,24 +2445,14 @@ App.Grid = (function() {
   }
 
   function _makeGroupThumb(scene) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'seq-group-thumb-wrap';
+    wrapper.dataset.sceneId = scene.id;
     const img = document.createElement('img');
     img.className = 'seq-group-thumb';
     img.alt = scene.asset.path;
-    const cache = App.State.get('thumbnailCache');
-    const assetPath = scene.asset.path;
-    if (cache.has(assetPath)) {
-      img.src = cache.get(assetPath);
-    } else {
-      const handle = App.State.get('fileHandleCache').get(assetPath);
-      if (handle) {
-        handle.getFile().then(f => {
-          const url = URL.createObjectURL(f);
-          cache.set(assetPath, url);
-          img.src = url;
-        }).catch(() => {});
-      }
-    }
-    return img;
+    wrapper.appendChild(img);
+    return wrapper;
   }
 
   function _buildNodeCard(el) {
