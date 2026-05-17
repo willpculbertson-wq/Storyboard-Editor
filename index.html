@@ -583,6 +583,15 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .ctx-item.disabled{opacity:.4;pointer-events:none}
 .ctx-sep{height:1px;background:var(--border);margin:4px 0}
 
+/* DnD drop indicator + group highlight */
+.dnd-placeholder{grid-column:1/-1;height:3px;background:var(--accent);border-radius:2px;pointer-events:none;box-shadow:0 0 6px rgba(59,130,246,.45);margin:1px 0}
+.seq-group-header.drag-drop-over{background:rgba(59,130,246,.12)!important;outline:1px solid var(--accent)}
+.seq-group.dragging{opacity:.35}
+
+/* Disabled button base */
+button:disabled{opacity:.35;cursor:not-allowed}
+button:disabled:hover{background:var(--bg-3)}
+
 /* Grid-mode-only toolbar buttons */
 .grid-only{display:none}
 #app-shell.view-grid .grid-only{display:inline-flex}
@@ -639,6 +648,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
       <button id="btn-collapse-all">Collapse All</button>
       <button id="btn-expand-all">Expand All</button>
     </div>
+    <button id="btn-undo" disabled title="Undo (Ctrl+Z)" style="margin-left:8px">↩ Undo</button>
     <div class="header-spacer"></div>
     <div class="header-btns">
       <div class="stat-chip" title="Included scenes"><span class="dot dot-green"></span><span id="stat-included">0</span> included</div>
@@ -1212,6 +1222,65 @@ function migrateProject(p) {
 }
 
 // ═══════════════════════════════════════════════════════
+// UNDO SYSTEM
+// ═══════════════════════════════════════════════════════
+App.Undo = (function() {
+  const LIMIT = 50;
+  let _stack = []; // array of JSON strings (project snapshots)
+
+  function _key() {
+    const p = App.State?.get('project');
+    return p ? `storyboard_undo_${p.project.id}` : 'storyboard_undo_default';
+  }
+
+  function _updateBtn() {
+    const btn = document.getElementById('btn-undo');
+    if (btn) btn.disabled = !canUndo();
+  }
+
+  function push(snapshot) {
+    _stack.push(JSON.stringify(snapshot));
+    if (_stack.length > LIMIT) _stack.shift();
+    try { localStorage.setItem(_key(), JSON.stringify(_stack)); } catch(e) {}
+    _updateBtn();
+  }
+
+  function pop() {
+    if (!_stack.length) return null;
+    const snap = JSON.parse(_stack.pop());
+    try { localStorage.setItem(_key(), JSON.stringify(_stack)); } catch(e) {}
+    _updateBtn();
+    return snap;
+  }
+
+  function canUndo() { return _stack.length > 0; }
+
+  function clear() {
+    _stack = [];
+    try { localStorage.removeItem(_key()); } catch(e) {}
+    _updateBtn();
+  }
+
+  function load() {
+    try {
+      const saved = localStorage.getItem(_key());
+      _stack = saved ? JSON.parse(saved) : [];
+    } catch(e) { _stack = []; }
+    _updateBtn();
+  }
+
+  function perform() {
+    const snap = pop();
+    if (!snap) return;
+    App.State.get('selectedCards').clear();
+    App.State.restoreProject(snap);
+    App.Filters?.updateBulkBar();
+  }
+
+  return { push, pop, canUndo, clear, load, perform };
+})();
+
+// ═══════════════════════════════════════════════════════
 // STATE MANAGEMENT
 // ═══════════════════════════════════════════════════════
 App.State = (function() {
@@ -1235,12 +1304,24 @@ App.State = (function() {
   function get(key) { return key ? _state[key] : _state; }
   function set(key, value) { _state[key] = value; _emit(key, value); }
 
-  function mutateProject(fn) {
+  function mutateProject(fn, opts) {
     if (!_state.project) return;
+    if (!opts?.noUndo) App.Undo.push(JSON.parse(JSON.stringify(_state.project)));
     fn(_state.project);
     _state.project.project.modified = new Date().toISOString();
     _state.dirty = true;
     _state._sceneIndex = App.Seq.buildIndex(_state.project.sequence);
+    _emit('projectChange', _state.project);
+    App.FS.scheduleSave();
+  }
+
+  function restoreProject(snapshot) {
+    if (!snapshot) return;
+    _state.project = snapshot;
+    _state.dirty = true;
+    _state._sceneIndex = App.Seq.buildIndex(_state.project.sequence);
+    const titleEl = document.getElementById('project-title');
+    if (titleEl) titleEl.value = _state.project.project.title || '';
     _emit('projectChange', _state.project);
     App.FS.scheduleSave();
   }
@@ -1254,7 +1335,7 @@ App.State = (function() {
     if (_state.project) _state._sceneIndex = App.Seq.buildIndex(_state.project.sequence);
   }
 
-  return { get, set, mutateProject, subscribe, initIndex };
+  return { get, set, mutateProject, restoreProject, subscribe, initIndex };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -1413,7 +1494,7 @@ function reconcileScenes(imageFiles) {
         project.sequence.push(buildEmptyScene(f));
       }
     }
-  });
+  }, { noUndo: true });
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1474,39 +1555,211 @@ App.LazyLoader = (function() {
 // DRAG AND DROP
 // ═══════════════════════════════════════════════════════
 App.DnD = (function() {
-  let _srcId = null;
+  let _dragIds  = [];    // scene IDs or [groupId] being dragged
+  let _dragType = '';    // 'scenes' | 'group'
+  let _ph       = null;  // drop-indicator placeholder element
+  let _hoverGrp = null;  // group ID whose header is currently highlighted
 
-  function _eid(el) { return el.dataset.elementId || el.dataset.sceneId; }
+  function _getPlaceholder() {
+    if (!_ph) {
+      _ph = document.createElement('div');
+      _ph.className = 'dnd-placeholder';
+    }
+    return _ph;
+  }
+  function _removePh() { _ph?.remove(); }
 
-  function onDragStart(e) {
-    _srcId = _eid(e.currentTarget);
+  function _clearGrpHighlight() {
+    document.querySelectorAll('.seq-group-header.drag-drop-over')
+      .forEach(h => h.classList.remove('drag-drop-over'));
+    _hoverGrp = null;
+  }
+
+  // ── Drag start ───────────────────────────────────────────
+  function onSceneDragStart(e) {
+    const id  = e.currentTarget.dataset.sceneId;
+    const sel = App.State.get('selectedCards');
+    _dragIds  = (sel.size > 0 && sel.has(id)) ? [...sel] : [id];
+    _dragType = 'scenes';
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', _srcId);
-    e.currentTarget.classList.add('dragging');
-  }
-  function onDragOver(e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    const t = e.currentTarget;
-    if (_eid(t) !== _srcId) t.classList.add('drag-over');
-  }
-  function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
-  function onDrop(e) {
-    e.preventDefault();
-    const targetId = _eid(e.currentTarget);
-    e.currentTarget.classList.remove('drag-over');
-    if (!targetId || targetId === _srcId) return;
-    App.State.mutateProject(project => {
-      App.Seq.move(project.sequence, _srcId, targetId);
+    e.dataTransfer.setData('text/plain', id);
+    _dragIds.forEach(sid => {
+      document.querySelector(`.scene-card[data-scene-id="${sid}"]`)?.classList.add('dragging');
     });
   }
-  function onDragEnd(e) {
-    e.currentTarget.classList.remove('dragging');
-    document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-    _srcId = null;
+
+  function onGroupDragStart(e) {
+    e.stopPropagation();
+    const grp = e.currentTarget.closest('.seq-group');
+    _dragIds  = [grp.dataset.elementId];
+    _dragType = 'group';
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', _dragIds[0]);
+    grp.classList.add('dragging');
   }
 
-  return { onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd };
+  // ── Card dragover — show precision indicator line ────────
+  function onCardDragOver(e) {
+    if (_dragType !== 'scenes') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const card = e.currentTarget;
+    if (_dragIds.includes(card.dataset.sceneId)) return;
+
+    _clearGrpHighlight();
+    const rect        = card.getBoundingClientRect();
+    const insertBefore = e.clientX < rect.left + rect.width / 2;
+    const ph           = _getPlaceholder();
+    const grid         = card.parentElement; // .scene-grid
+    if (insertBefore) {
+      if (ph.nextElementSibling !== card) grid.insertBefore(ph, card);
+    } else {
+      const after = card.nextElementSibling;
+      if (after !== ph) grid.insertBefore(ph, after ?? null);
+    }
+  }
+
+  // ── Group header dragover — highlight for append ─────────
+  function onGroupHeaderDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    const grpEl = e.currentTarget.closest('.seq-group');
+    if (!grpEl) return;
+    const gid = grpEl.dataset.elementId;
+    if (_dragType === 'group' && _dragIds[0] === gid) return;
+
+    _removePh();
+    if (_hoverGrp !== gid) {
+      _clearGrpHighlight();
+      e.currentTarget.classList.add('drag-drop-over');
+      _hoverGrp = gid;
+    }
+  }
+
+  function onGroupHeaderDragLeave(e) {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      e.currentTarget.classList.remove('drag-drop-over');
+      const gid = e.currentTarget.closest('.seq-group')?.dataset.elementId;
+      if (_hoverGrp === gid) _hoverGrp = null;
+    }
+  }
+
+  // ── Drop helpers ─────────────────────────────────────────
+  function _dropInfo() {
+    if (!_ph?.parentElement) return null;
+    let next = _ph.nextElementSibling;
+    while (next?.classList.contains('dnd-placeholder')) next = next.nextElementSibling;
+    const insertBeforeId = next?.dataset?.sceneId ?? null;
+    // Walk up: scene-grid → seq-group-body or seq-root-body
+    const body      = _ph.parentElement.parentElement;
+    const grpEl     = body?.classList?.contains('seq-group-body') ? body.parentElement : null;
+    const parentGrpId = grpEl?.dataset?.elementId ?? null;
+    return { insertBeforeId, parentGrpId };
+  }
+
+  function _dropOntoGroup(gid) {
+    if (_dragType === 'scenes') {
+      App.State.mutateProject(project => {
+        const ordered = [];
+        App.Seq.walk(project.sequence, el => { if (_dragIds.includes(el.id)) ordered.push(el); });
+        const clones = ordered.map(el => JSON.parse(JSON.stringify(el)));
+        _dragIds.forEach(id => App.Seq.remove(project.sequence, id));
+        const tgt = App.Seq.findById(project.sequence, gid);
+        if (tgt?.el?.type === 'group') tgt.el.sequence.push(...clones);
+      });
+    } else if (_dragType === 'group') {
+      const srcId = _dragIds[0];
+      if (srcId === gid) return;
+      App.State.mutateProject(project => {
+        const src = App.Seq.findById(project.sequence, srcId);
+        if (!src) return;
+        const clone = JSON.parse(JSON.stringify(src.el));
+        App.Seq.remove(project.sequence, srcId);
+        const tgt = App.Seq.findById(project.sequence, gid);
+        if (tgt?.el?.type === 'group') tgt.el.sequence.push(clone);
+      });
+    }
+  }
+
+  function _dropInline(insertBeforeId, parentGrpId) {
+    if (_dragType === 'scenes') {
+      App.State.mutateProject(project => {
+        const ordered = [];
+        App.Seq.walk(project.sequence, el => { if (_dragIds.includes(el.id)) ordered.push(el); });
+        const clones = ordered.map(el => JSON.parse(JSON.stringify(el)));
+        _dragIds.forEach(id => App.Seq.remove(project.sequence, id));
+        let seq = project.sequence;
+        if (parentGrpId) {
+          const g = App.Seq.findById(project.sequence, parentGrpId);
+          if (g?.el?.sequence) seq = g.el.sequence;
+        }
+        if (insertBeforeId) {
+          const idx = seq.findIndex(el => el.id === insertBeforeId);
+          if (idx >= 0) { seq.splice(idx, 0, ...clones); return; }
+        }
+        seq.push(...clones);
+      });
+    } else if (_dragType === 'group') {
+      const srcId = _dragIds[0];
+      App.State.mutateProject(project => {
+        const src = App.Seq.findById(project.sequence, srcId);
+        if (!src) return;
+        const clone = JSON.parse(JSON.stringify(src.el));
+        App.Seq.remove(project.sequence, srcId);
+        let seq = project.sequence;
+        if (parentGrpId) {
+          const g = App.Seq.findById(project.sequence, parentGrpId);
+          if (g?.el?.sequence) seq = g.el.sequence;
+        }
+        if (insertBeforeId) {
+          const idx = seq.findIndex(el => el.id === insertBeforeId);
+          if (idx >= 0) { seq.splice(idx, 0, clone); return; }
+        }
+        seq.push(clone);
+      });
+    }
+  }
+
+  // ── Drop events ──────────────────────────────────────────
+  function onCardDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!_dragIds.length) return;
+    if (_hoverGrp) {
+      _dropOntoGroup(_hoverGrp);
+    } else {
+      const info = _dropInfo();
+      if (info) _dropInline(info.insertBeforeId, info.parentGrpId);
+    }
+    _cleanup();
+  }
+
+  function onGroupHeaderDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!_dragIds.length) return;
+    const gid = e.currentTarget.closest('.seq-group')?.dataset.elementId;
+    if (gid) _dropOntoGroup(gid);
+    _cleanup();
+  }
+
+  function onDragEnd() { _cleanup(); }
+
+  function _cleanup() {
+    _removePh();
+    _clearGrpHighlight();
+    document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+    _dragIds  = [];
+    _dragType = '';
+  }
+
+  return {
+    onSceneDragStart, onGroupDragStart,
+    onCardDragOver,   onCardDrop,
+    onGroupHeaderDragOver, onGroupHeaderDragLeave, onGroupHeaderDrop,
+    onDragEnd,
+  };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -1957,10 +2210,9 @@ App.Grid = (function() {
       App.CtxMenu.show(e.clientX, e.clientY, scene.id);
     });
 
-    card.addEventListener('dragstart', App.DnD.onDragStart);
-    card.addEventListener('dragover',  App.DnD.onDragOver);
-    card.addEventListener('dragleave', App.DnD.onDragLeave);
-    card.addEventListener('drop',      App.DnD.onDrop);
+    card.addEventListener('dragstart', App.DnD.onSceneDragStart);
+    card.addEventListener('dragover',  App.DnD.onCardDragOver);
+    card.addEventListener('drop',      App.DnD.onCardDrop);
     card.addEventListener('dragend',   App.DnD.onDragEnd);
 
     return card;
@@ -1998,26 +2250,27 @@ App.Grid = (function() {
     btnTop.className = 'seq-group-order-btn';
     btnTop.textContent = '⇈';
     btnTop.title = 'Move to top';
-    btnTop.addEventListener('click', e => { e.stopPropagation(); moveGroupToTop(el.id); });
+    btnTop.addEventListener('click', e => { e.stopPropagation(); if (!_moveSelectionDir('top')) moveGroupToTop(el.id); });
 
     const btnUp = document.createElement('button');
     btnUp.className = 'seq-group-order-btn';
     btnUp.textContent = '↑';
     btnUp.title = 'Move up';
-    btnUp.addEventListener('click', e => { e.stopPropagation(); moveGroupUp(el.id); });
+    btnUp.addEventListener('click', e => { e.stopPropagation(); if (!_moveSelectionDir('up')) moveGroupUp(el.id); });
 
     const btnDown = document.createElement('button');
     btnDown.className = 'seq-group-order-btn';
     btnDown.textContent = '↓';
     btnDown.title = 'Move down';
-    btnDown.addEventListener('click', e => { e.stopPropagation(); moveGroupDown(el.id); });
+    btnDown.addEventListener('click', e => { e.stopPropagation(); if (!_moveSelectionDir('down')) moveGroupDown(el.id); });
 
     const btnBottom = document.createElement('button');
     btnBottom.className = 'seq-group-order-btn';
     btnBottom.textContent = '⇊';
     btnBottom.title = 'Move to bottom';
-    btnBottom.addEventListener('click', e => { e.stopPropagation(); moveGroupToBottom(el.id); });
+    btnBottom.addEventListener('click', e => { e.stopPropagation(); if (!_moveSelectionDir('bottom')) moveGroupToBottom(el.id); });
 
+    header.draggable = true;
     header.appendChild(arrow);
     header.appendChild(name);
     header.appendChild(count);
@@ -2025,6 +2278,11 @@ App.Grid = (function() {
     header.appendChild(btnUp);
     header.appendChild(btnDown);
     header.appendChild(btnBottom);
+    header.addEventListener('dragstart', App.DnD.onGroupDragStart);
+    header.addEventListener('dragover',  App.DnD.onGroupHeaderDragOver);
+    header.addEventListener('dragleave', App.DnD.onGroupHeaderDragLeave);
+    header.addEventListener('drop',      App.DnD.onGroupHeaderDrop);
+    header.addEventListener('dragend',   App.DnD.onDragEnd);
     header.addEventListener('click', () => {
       App.State.mutateProject(project => {
         const found = App.Seq.findById(project.sequence, el.id);
@@ -2185,6 +2443,42 @@ App.Grid = (function() {
   function renameGroup(groupId) {
     const nameEl = document.querySelector(`.seq-group[data-element-id="${groupId}"] .seq-group-name`);
     if (nameEl) _startInlineEdit(groupId, nameEl);
+  }
+
+  // Returns true if selection was handled, false if nothing selected (caller should use group movement).
+  function _moveSelectionDir(dir) {
+    const sel = App.State.get('selectedCards');
+    if (!sel.size) return false;
+    App.State.mutateProject(project => {
+      const parentArrays = new Set();
+      App.Seq.walk(project.sequence, (el, arr) => {
+        if (el.type === 'scene' && sel.has(el.id)) parentArrays.add(arr);
+      });
+      parentArrays.forEach(arr => _moveSelectedInArray(arr, sel, dir));
+    });
+    return true;
+  }
+
+  function _moveSelectedInArray(arr, sel, dir) {
+    if (dir === 'up') {
+      for (let i = 1; i < arr.length; i++) {
+        if (sel.has(arr[i].id) && !sel.has(arr[i - 1]?.id))
+          [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+      }
+    } else if (dir === 'down') {
+      for (let i = arr.length - 2; i >= 0; i--) {
+        if (sel.has(arr[i].id) && !sel.has(arr[i + 1]?.id))
+          [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+      }
+    } else if (dir === 'top') {
+      const selected = arr.filter(el => sel.has(el.id));
+      const rest     = arr.filter(el => !sel.has(el.id));
+      arr.splice(0, arr.length, ...selected, ...rest);
+    } else if (dir === 'bottom') {
+      const selected = arr.filter(el => sel.has(el.id));
+      const rest     = arr.filter(el => !sel.has(el.id));
+      arr.splice(0, arr.length, ...rest, ...selected);
+    }
   }
 
   function moveGroupUp(id) {
@@ -4055,6 +4349,7 @@ App.StartScreen = (function() {
 
     document.getElementById('project-title').value = App.State.get('project').project.title;
 
+    App.Undo.load();
     App.Grid.init();
     App.LazyLoader.init();
     App.Editor.init();
@@ -4077,6 +4372,13 @@ App.StartScreen = (function() {
 // ═══════════════════════════════════════════════════════
 // HEADER WIRING
 // ═══════════════════════════════════════════════════════
+document.getElementById('btn-undo').addEventListener('click', () => App.Undo.perform());
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    App.Undo.perform();
+  }
+});
 document.getElementById('btn-chars').addEventListener('click', () => App.CharMgr.open());
 document.getElementById('btn-vars').addEventListener('click', () => App.VarMgr.open());
 document.getElementById('btn-export').addEventListener('click', () => document.getElementById('export-dialog').showModal());

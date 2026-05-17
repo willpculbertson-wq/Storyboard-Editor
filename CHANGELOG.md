@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-05-16 — Undo system, improved DnD, selection-aware movement buttons
+
+- **Undo system**: `App.Undo` module with 50-step stack persisted per-project in `localStorage`. `mutateProject` pushes a deep snapshot before every mutation (except the initial `reconcileScenes` scan). `App.State.restoreProject()` restores a snapshot directly without triggering another undo push. The ↩ Undo button in the header is disabled when the stack is empty; Ctrl+Z (or ⌘Z) also triggers undo. The stack is loaded from localStorage when opening a project, so undo history survives page reloads.
+- **Drag-and-drop overhaul** (`App.DnD` rewrite):
+  - *Multi-image drag*: dragging a scene card that is part of a multi-selection drags the entire selection; dragging an unselected card drags only that card.
+  - *Precision drop-line indicator*: a thin blue `.dnd-placeholder` bar (spanning the full grid row) appears between cards as you drag, showing exactly where images will land. Position is based on which half of the nearest card the cursor is in.
+  - *Group drag*: group headers are now `draggable`. Dragging a group header and dropping it onto another group header nests it inside that group.
+  - *Group header drop target*: dragging any scene(s) onto a group header highlights the header and appends the scenes to the end of that group on drop.
+  - *Cross-group movement*: scenes can be dragged out of a child group and dropped into a parent group's scene grid for precise positioning — this was the primary missing use case.
+- **Selection-aware ⇈↑↓⇊ buttons**: when one or more image cards are selected, the order buttons on every group header move the selection instead of the group. With no selection, the buttons move the group as before. Movement is per-parent-array: each parent that contains selected scenes is sorted independently.
+
 ## 2026-05-16 — Collapsed thumbnails 3+3, cutout sequence badges, header UX
 
 - **Collapsed group preview now shows first 3 + badge + last 3** thumbnails (≤6 images → show all; >6 → first 3 · count badge · last 3). Thumb size reduced to 50×31 px.
