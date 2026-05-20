@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-05-20 — Replace single narrative field with multiple text boxes per scene
+
+- **Data model**: `scene.narrative` (string) replaced by `scene.textBoxes` (array of `{ id, header, color, text }`). Each box has a free-form header label, one of 16 preset colors, and a text body.
+- **Migration**: `migrateProject` auto-converts any scene with a `narrative` string into a single-entry `textBoxes` array on first load; `narrative` is then deleted.
+- **Scene editor UI**: the narrative textarea is replaced by a dynamic list of text box entries. Each entry shows a row of 16 color swatches, a header input, a delete button (disabled when only one box remains), and a textarea. An "+ Add text box" button appends a new entry inheriting the last box's color.
+- **List view**: the Narrative column previews the first non-empty box, prefixed with its header if set.
+- **Stats**: narrative coverage now counts scenes with at least one text box containing non-empty text.
+- **LLM export**: text boxes are emitted in order, each labeled by header (or "Narrator" if blank).
+
 ## 2026-05-20 — Add scroll wheel and nav buttons to focus view
 
 - **Scroll wheel navigation**: scrolling down/up in focus mode advances or retreats by one image.

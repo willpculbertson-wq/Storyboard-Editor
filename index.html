@@ -222,6 +222,18 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .field-group.span2{grid-column:span 2}
 .field-group.span3{grid-column:span 3}
 .field-group label{font-size:11px;color:var(--text-1)}
+/* ── TEXT BOXES ──────────────────────────────────────── */
+#ed-text-boxes{display:flex;flex-direction:column;gap:8px}
+.text-box-entry{border:1px solid var(--border);border-radius:var(--radius);padding:8px;display:flex;flex-direction:column;gap:6px;background:var(--bg-1)}
+.text-box-top{display:flex;align-items:center;gap:6px}
+.text-box-swatches{display:flex;gap:2px;flex-shrink:0;flex-wrap:wrap;max-width:200px}
+.text-box-swatch{width:13px;height:13px;border-radius:50%;cursor:pointer;border:2px solid transparent;box-sizing:border-box;flex-shrink:0;transition:border-color .1s}
+.text-box-swatch.selected{border-color:#fff;box-shadow:0 0 0 1px #888}
+.text-box-header-input{flex:1;min-width:0;font-size:12px}
+.text-box-del{flex:0 0 auto;padding:2px 7px;font-size:12px;line-height:1.4}
+.text-box-del:disabled{opacity:.3;cursor:not-allowed}
+.text-box-entry textarea{resize:vertical;width:100%;box-sizing:border-box}
+#ed-add-text-box{align-self:flex-start;margin-top:2px;font-size:12px}
 #ed-chars-section{grid-column:1/-1;border-top:1px solid var(--border);padding-top:8px}
 #ed-chars-section h4{font-size:11px;color:var(--text-1);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}
 .char-entry{display:flex;align-items:center;gap:6px;margin-bottom:4px}
@@ -854,8 +866,9 @@ button:disabled:hover{background:var(--bg-3)}
           </div>
 
           <div class="field-group span3">
-            <label>Narrative (on-screen text)</label>
-            <textarea id="ed-narrative" data-field="narrative" rows="3" placeholder="Story text shown during this scene…"></textarea>
+            <label>Text Boxes</label>
+            <div id="ed-text-boxes"></div>
+            <button id="ed-add-text-box">+ Add text box</button>
           </div>
 
           <div class="field-group span2">
@@ -1068,7 +1081,7 @@ function buildEmptyScene(file) {
     perspective: '',
     characters: [],
     shot: { type: '', transition: '' },
-    narrative: '',
+    textBoxes: [{ id: crypto.randomUUID(), header: '', color: 'white', text: '' }],
     mood: '',
     notes: '',
     video: { sequenceId: '', indexInSequence: 0, motionPrompt: '' },
@@ -1234,6 +1247,14 @@ function migrateProject(p) {
   if (!p.rootName) p.rootName = 'All Images';
   // Ensure every element has a type field
   App.Seq.walk(p.sequence, el => { if (!el.type) el.type = 'scene'; });
+  // Migrate narrative string → textBoxes array
+  App.Seq.walk(p.sequence, el => {
+    if (el.type !== 'scene') return;
+    if (!el.textBoxes) {
+      el.textBoxes = [{ id: crypto.randomUUID(), header: '', color: 'white', text: el.narrative || '' }];
+      delete el.narrative;
+    }
+  });
   if (!p.project.version || p.project.version === '1.0.0') p.project.version = '1.1.0';
   return p;
 }
@@ -3100,9 +3121,12 @@ App.Grid = (function() {
       } else if (col.id === 'narrative') {
         const div = document.createElement('div');
         div.className = 'list-narrative';
-        const t = scene.narrative || '';
-        div.textContent = t ? (t.length > 80 ? t.slice(0, 80) + '…' : t) : '—';
-        if (t.length > 80) div.title = t;
+        const firstBox = (scene.textBoxes || []).find(b => b.text);
+        const t = firstBox?.text || '';
+        const prefix = firstBox?.header ? `${firstBox.header}: ` : '';
+        const full = prefix + t;
+        div.textContent = full ? (full.length > 80 ? full.slice(0, 80) + '…' : full) : '—';
+        if (full.length > 80) div.title = full;
         row.appendChild(div);
       } else if (col.id === 'chars') {
         const div = document.createElement('div');
@@ -3296,6 +3320,8 @@ App.Editor = (function() {
     const fields = document.getElementById('editor-fields');
     fields.addEventListener('change', _onFieldChange);
     fields.addEventListener('input',  _onFieldInput);
+    fields.addEventListener('click',  _onTextBoxClick);
+    document.getElementById('ed-add-text-box').addEventListener('click', _addTextBox);
 
     // Tab strip click — toggle expand/collapse
     document.getElementById('editor-tab').addEventListener('click', () => {
@@ -3458,7 +3484,7 @@ App.Editor = (function() {
     document.getElementById('ed-content-rating').value = scene.contentRating || '';
     document.getElementById('ed-shot-type').value   = scene.shot?.type || '';
     document.getElementById('ed-transition').value  = scene.shot?.transition || '';
-    document.getElementById('ed-narrative').value   = scene.narrative || '';
+    _renderTextBoxes(scene);
     document.getElementById('ed-mood').value        = scene.mood || '';
     document.getElementById('ed-notes').value       = scene.notes || '';
     document.getElementById('ed-seq-id').value      = scene.video?.sequenceId || '';
@@ -3593,6 +3619,151 @@ App.Editor = (function() {
     });
   }
 
+  // ── Text box helpers ─────────────────────────────────────
+
+  const TEXT_BOX_COLORS = [
+    { name: 'white',   hex: '#ffffff' },
+    { name: 'silver',  hex: '#b0b0b0' },
+    { name: 'red',     hex: '#e74c3c' },
+    { name: 'maroon',  hex: '#922b21' },
+    { name: 'orange',  hex: '#e67e22' },
+    { name: 'yellow',  hex: '#f1c40f' },
+    { name: 'lime',    hex: '#2ecc71' },
+    { name: 'green',   hex: '#1e8449' },
+    { name: 'teal',    hex: '#17a589' },
+    { name: 'cyan',    hex: '#00bcd4' },
+    { name: 'blue',    hex: '#3498db' },
+    { name: 'navy',    hex: '#1a5276' },
+    { name: 'indigo',  hex: '#6c3483' },
+    { name: 'magenta', hex: '#e91e63' },
+    { name: 'pink',    hex: '#f48fb1' },
+    { name: 'brown',   hex: '#795548' },
+  ];
+
+  function _renderTextBoxes(scene) {
+    const container = document.getElementById('ed-text-boxes');
+    container.innerHTML = '';
+    const boxes = scene.textBoxes || [];
+    boxes.forEach(box => container.appendChild(_buildTextBoxEntry(box, boxes.length)));
+  }
+
+  function _buildTextBoxEntry(box, total) {
+    const entry = document.createElement('div');
+    entry.className = 'text-box-entry';
+    entry.dataset.boxId = box.id;
+
+    const top = document.createElement('div');
+    top.className = 'text-box-top';
+
+    const swatches = document.createElement('div');
+    swatches.className = 'text-box-swatches';
+    TEXT_BOX_COLORS.forEach(c => {
+      const sw = document.createElement('span');
+      sw.className = 'text-box-swatch' + (box.color === c.name ? ' selected' : '');
+      sw.style.background = c.hex;
+      sw.dataset.color = c.name;
+      sw.title = c.name;
+      swatches.appendChild(sw);
+    });
+    top.appendChild(swatches);
+
+    const headerInput = document.createElement('input');
+    headerInput.type = 'text';
+    headerInput.className = 'text-box-header-input';
+    headerInput.placeholder = 'Speaker or label…';
+    headerInput.value = box.header || '';
+    headerInput.dataset.boxId = box.id;
+    headerInput.dataset.boxField = 'header';
+    top.appendChild(headerInput);
+
+    const del = document.createElement('button');
+    del.className = 'text-box-del';
+    del.textContent = '✕';
+    del.dataset.deleteBox = box.id;
+    del.disabled = total <= 1;
+    top.appendChild(del);
+
+    entry.appendChild(top);
+
+    const textarea = document.createElement('textarea');
+    textarea.rows = 3;
+    textarea.placeholder = 'Story text shown during this scene…';
+    textarea.value = box.text || '';
+    textarea.dataset.boxId = box.id;
+    textarea.dataset.boxField = 'text';
+    entry.appendChild(textarea);
+
+    return entry;
+  }
+
+  function _mutateTextBox(boxId, fn) {
+    const project = App.State.get('project');
+    if (!project) return;
+    const scene = App.Seq.findSceneById(project.sequence, _currentId);
+    if (!scene) return;
+    const box = (scene.textBoxes || []).find(b => b.id === boxId);
+    if (!box) return;
+    fn(box);
+    project.project.modified = new Date().toISOString();
+    App.State.set('dirty', true);
+    App.FS.scheduleSave();
+  }
+
+  function _addTextBox() {
+    if (!_currentId) return;
+    const project = App.State.get('project');
+    if (!project) return;
+    const scene = App.Seq.findSceneById(project.sequence, _currentId);
+    if (!scene) return;
+    const boxes = scene.textBoxes || [];
+    const lastColor = boxes.length > 0 ? boxes[boxes.length - 1].color : 'white';
+    const newBox = { id: crypto.randomUUID(), header: '', color: lastColor, text: '' };
+    App.State.mutateProject(p => {
+      const s = App.Seq.findSceneById(p.sequence, _currentId);
+      if (s) { if (!s.textBoxes) s.textBoxes = []; s.textBoxes.push(newBox); }
+    });
+    const container = document.getElementById('ed-text-boxes');
+    const newTotal = (scene.textBoxes || []).length;
+    container.appendChild(_buildTextBoxEntry(newBox, newTotal));
+    _updateDeleteButtonStates();
+  }
+
+  function _deleteTextBox(boxId) {
+    if (!_currentId) return;
+    App.State.mutateProject(p => {
+      const s = App.Seq.findSceneById(p.sequence, _currentId);
+      if (s?.textBoxes && s.textBoxes.length > 1) s.textBoxes = s.textBoxes.filter(b => b.id !== boxId);
+    });
+    const entry = document.querySelector(`.text-box-entry[data-box-id="${boxId}"]`);
+    if (entry) entry.remove();
+    _updateDeleteButtonStates();
+  }
+
+  function _updateDeleteButtonStates() {
+    const entries = document.querySelectorAll('.text-box-entry');
+    const only = entries.length <= 1;
+    entries.forEach(e => {
+      const btn = e.querySelector('[data-delete-box]');
+      if (btn) btn.disabled = only;
+    });
+  }
+
+  function _onTextBoxClick(e) {
+    if (!_currentId) return;
+    const swatch = e.target.closest('.text-box-swatch');
+    if (swatch) {
+      const entry = swatch.closest('.text-box-entry');
+      const boxId = entry?.dataset.boxId;
+      if (!boxId) return;
+      _mutateTextBox(boxId, b => { b.color = swatch.dataset.color; });
+      entry.querySelectorAll('.text-box-swatch').forEach(s =>
+        s.classList.toggle('selected', s.dataset.color === swatch.dataset.color));
+      return;
+    }
+    const del = e.target.closest('[data-delete-box]');
+    if (del) { _deleteTextBox(del.dataset.deleteBox); return; }
+  }
+
   function _onFieldChange(e) {
     const field = e.target.dataset.field;
     if (!field || !_currentId) return;
@@ -3606,8 +3777,12 @@ App.Editor = (function() {
   }
 
   function _onFieldInput(e) {
+    if (e.target.dataset.boxField) {
+      _mutateTextBox(e.target.dataset.boxId, b => { b[e.target.dataset.boxField] = e.target.value; });
+      return;
+    }
     const field = e.target.dataset.field;
-    const textFields = ['narrative', 'mood', 'notes', 'video.motionPrompt', 'video.sequenceId'];
+    const textFields = ['mood', 'notes', 'video.motionPrompt', 'video.sequenceId'];
     if (!field || !textFields.includes(field) || !_currentId) return;
     const project = App.State.get('project');
     if (!project) return;
@@ -4190,7 +4365,7 @@ App.Stats = (function() {
     const excluded = scenes.filter(s => s.status === 'excluded');
     const maybe    = scenes.filter(s => s.status === 'maybe');
     const untagged = scenes.filter(s => !s.status || s.status === 'untagged');
-    const withNarrative = included.filter(s => s.narrative?.trim().length > 0);
+    const withNarrative = included.filter(s => s.textBoxes?.some(b => b.text?.trim().length > 0));
     const withChars     = included.filter(s => s.characters?.length > 0);
     const nPct = included.length ? Math.round(withNarrative.length / included.length * 100) : 0;
     const cPct = included.length ? Math.round(withChars.length / included.length * 100) : 0;
@@ -4289,7 +4464,14 @@ App.Export = (function() {
       if (charNames)              md += `| Characters | ${charNames} |\n`;
       if (pov)                    md += `| POV | ${pov.alias || pov.name} |\n`;
       if (scene.tags?.length)     md += `| Tags | ${scene.tags.join(', ')} |\n`;
-      if (scene.narrative) md += `\n**Narrative:**\n> ${scene.narrative.replace(/\n/g, '\n> ')}\n`;
+      const filledBoxes = (scene.textBoxes || []).filter(b => b.text?.trim());
+      if (filledBoxes.length) {
+        md += '\n**Text Boxes:**\n';
+        filledBoxes.forEach(b => {
+          const label = b.header ? `**${b.header}**` : '_Narrator_';
+          md += `> ${label}: ${b.text.replace(/\n/g, '\n> ')}\n`;
+        });
+      }
       if (scene.video?.sequenceId) {
         md += `\n**Video Sequence:** \`${scene.video.sequenceId}\` (index ${scene.video.indexInSequence})\n`;
         if (scene.video.motionPrompt) md += `**Motion Prompt:** ${scene.video.motionPrompt}\n`;
