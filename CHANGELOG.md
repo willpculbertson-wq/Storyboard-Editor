@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-05-20 — Show editable text boxes in focus view
+
+- **Focus view text panel**: the current (center) scene now shows its text boxes below the image. Each entry displays 16 color swatches, a header input, and a text textarea — all editable in place, saving immediately on input.
+- **Layout priority**: the image area uses `flex:1 1 0` so it shrinks to give the panel room; the panel has `min-height:80px` (≈3 lines) and scrolls when content exceeds `max-height:45%` of the cell.
+- **Nav bar anchoring**: the ←/→ navigation bar now floats over the image portion of the current cell, not over the text panel.
+- **Shared color table**: `TEXT_BOX_COLORS` hoisted to `App.TEXT_BOX_COLORS` / `App.TEXT_BOX_COLOR_HEX` so both the editor and focus view use the same source.
+
 ## 2026-05-20 — Redo support and header toolbar layout tweaks
 
 - **Redo system**: added a redo stack to `App.Undo`. New mutations clear it; performing undo saves the current state onto the redo stack; `redo()` does the reverse. Keyboard shortcuts: Ctrl+Y and Ctrl+Shift+Z.

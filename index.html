@@ -391,9 +391,28 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .focus-nav-sep{width:1px;height:16px;background:var(--border);margin:0 3px;flex-shrink:0}
 #image-grid-inner.focus-view{display:flex;align-items:center;gap:6px;padding:12px;height:100%;box-sizing:border-box}
 .focus-cell{position:relative;background:var(--bg-0);border-radius:var(--radius);overflow:hidden;cursor:pointer;border:3px solid transparent;min-width:0;aspect-ratio:16/9;transition:border-color .1s,opacity .15s}
-.focus-cell.focus-current{flex:6 0 0;cursor:default}
+.focus-cell.focus-current{flex:6 0 0;cursor:default;aspect-ratio:unset;align-self:stretch;display:flex;flex-direction:column;overflow:hidden}
 .focus-cell.focus-near{flex:2 0 0;opacity:.75}
 .focus-cell.focus-far{flex:1 0 0;opacity:.45}
+.focus-current-img{flex:1 1 0;min-height:60px;position:relative;overflow:hidden}
+.focus-current-img img{width:100%;height:100%;object-fit:contain;display:block}
+.focus-text-boxes-panel{
+  flex:0 0 auto;overflow-y:auto;min-height:80px;max-height:45%;
+  border-top:1px solid var(--border);background:var(--bg-1);
+  padding:8px;display:flex;flex-direction:column;gap:6px;scrollbar-width:thin;
+}
+.focus-tb-entry{
+  display:flex;flex-direction:column;gap:4px;
+  border-left:3px solid var(--border);padding-left:6px;padding-bottom:4px;
+  border-bottom:1px solid var(--border);
+}
+.focus-tb-entry:last-child{border-bottom:none;padding-bottom:0}
+.focus-tb-top{display:flex;align-items:center;gap:4px}
+.focus-tb-swatches{display:flex;gap:2px;flex-wrap:wrap;max-width:200px;flex-shrink:0}
+.focus-tb-swatch{width:11px;height:11px;border-radius:50%;cursor:pointer;border:2px solid transparent;box-sizing:border-box;flex-shrink:0;transition:border-color .1s}
+.focus-tb-swatch.selected{border-color:#fff;box-shadow:0 0 0 1px #888}
+.focus-tb-header{flex:1;min-width:0;font-size:12px}
+.focus-tb-text{font-size:12px;resize:vertical;width:100%;box-sizing:border-box}
 .focus-cell[data-status="included"]{border-color:var(--green)}
 .focus-cell[data-status="excluded"]{border-color:var(--red)}
 .focus-cell[data-status="maybe"]{border-color:var(--yellow)}
@@ -2023,6 +2042,27 @@ App.CtxMenu = (function() {
   return { init, show, close };
 })();
 
+// Shared color table for text boxes — used by Editor and Grid modules
+App.TEXT_BOX_COLORS = [
+  { name: 'white',   hex: '#ffffff' },
+  { name: 'silver',  hex: '#b0b0b0' },
+  { name: 'red',     hex: '#e74c3c' },
+  { name: 'maroon',  hex: '#922b21' },
+  { name: 'orange',  hex: '#e67e22' },
+  { name: 'yellow',  hex: '#f1c40f' },
+  { name: 'lime',    hex: '#2ecc71' },
+  { name: 'green',   hex: '#1e8449' },
+  { name: 'teal',    hex: '#17a589' },
+  { name: 'cyan',    hex: '#00bcd4' },
+  { name: 'blue',    hex: '#3498db' },
+  { name: 'navy',    hex: '#1a5276' },
+  { name: 'indigo',  hex: '#6c3483' },
+  { name: 'magenta', hex: '#e91e63' },
+  { name: 'pink',    hex: '#f48fb1' },
+  { name: 'brown',   hex: '#795548' },
+];
+App.TEXT_BOX_COLOR_HEX = new Map(App.TEXT_BOX_COLORS.map(c => [c.name, c.hex]));
+
 // ═══════════════════════════════════════════════════════
 // IMAGE GRID
 // ═══════════════════════════════════════════════════════
@@ -2879,10 +2919,17 @@ App.Grid = (function() {
       const lbl = document.createElement('div');
       lbl.className = 'focus-label';
       lbl.textContent = scene.asset.path;
-      cell.appendChild(img);
-      cell.appendChild(lbl);
 
-      if (offset !== 0) {
+      if (offset === 0) {
+        const imgWrap = document.createElement('div');
+        imgWrap.className = 'focus-current-img';
+        imgWrap.appendChild(img);
+        imgWrap.appendChild(lbl);
+        cell.appendChild(imgWrap);
+        cell.appendChild(_buildFocusTextBoxesPanel(scene));
+      } else {
+        cell.appendChild(img);
+        cell.appendChild(lbl);
         cell.title = scene.asset.path;
         cell.addEventListener('click', () => App.Editor.open(scene.id));
       }
@@ -3286,6 +3333,93 @@ App.Grid = (function() {
     if (target !== idx) App.Editor.open(navScenes[target].id);
   }
 
+  function _mutateFocusTextBox(sceneId, boxId, fn) {
+    const project = App.State.get('project');
+    if (!project) return;
+    const scene = App.Seq.findSceneById(project.sequence, sceneId);
+    if (!scene) return;
+    const box = (scene.textBoxes || []).find(b => b.id === boxId);
+    if (!box) return;
+    fn(box);
+    project.project.modified = new Date().toISOString();
+    App.State.set('dirty', true);
+    App.FS.scheduleSave();
+  }
+
+  function _buildFocusTextBoxesPanel(scene) {
+    const panel = document.createElement('div');
+    panel.className = 'focus-text-boxes-panel';
+    panel.dataset.focusSceneId = scene.id;
+
+    (scene.textBoxes || []).forEach(box => {
+      const entry = document.createElement('div');
+      entry.className = 'focus-tb-entry';
+      entry.dataset.focusBoxId = box.id;
+      entry.style.borderLeftColor = App.TEXT_BOX_COLOR_HEX.get(box.color) || '#888';
+
+      const top = document.createElement('div');
+      top.className = 'focus-tb-top';
+
+      const swatches = document.createElement('div');
+      swatches.className = 'focus-tb-swatches';
+      App.TEXT_BOX_COLORS.forEach(c => {
+        const sw = document.createElement('span');
+        sw.className = 'focus-tb-swatch' + (box.color === c.name ? ' selected' : '');
+        sw.style.background = c.hex;
+        sw.dataset.color = c.name;
+        sw.title = c.name;
+        swatches.appendChild(sw);
+      });
+      top.appendChild(swatches);
+
+      const headerInput = document.createElement('input');
+      headerInput.type = 'text';
+      headerInput.className = 'focus-tb-header';
+      headerInput.placeholder = 'Speaker or label…';
+      headerInput.value = box.header || '';
+      headerInput.dataset.focusField = 'header';
+      top.appendChild(headerInput);
+
+      entry.appendChild(top);
+
+      const textarea = document.createElement('textarea');
+      textarea.className = 'focus-tb-text';
+      textarea.rows = 2;
+      textarea.placeholder = 'Story text shown during this scene…';
+      textarea.value = box.text || '';
+      textarea.dataset.focusField = 'text';
+      entry.appendChild(textarea);
+
+      panel.appendChild(entry);
+    });
+
+    panel.addEventListener('click', e => {
+      const sw = e.target.closest('.focus-tb-swatch');
+      if (!sw) return;
+      const entry = sw.closest('.focus-tb-entry');
+      const boxId = entry?.dataset.focusBoxId;
+      const sceneId = panel.dataset.focusSceneId;
+      if (!boxId || !sceneId) return;
+      const colorName = sw.dataset.color;
+      _mutateFocusTextBox(sceneId, boxId, b => { b.color = colorName; });
+      entry.style.borderLeftColor = App.TEXT_BOX_COLOR_HEX.get(colorName) || '#888';
+      entry.querySelectorAll('.focus-tb-swatch').forEach(s =>
+        s.classList.toggle('selected', s.dataset.color === colorName));
+    });
+
+    panel.addEventListener('input', e => {
+      const field = e.target.dataset.focusField;
+      if (!field) return;
+      const entry = e.target.closest('.focus-tb-entry');
+      const boxId = entry?.dataset.focusBoxId;
+      const sceneId = panel.dataset.focusSceneId;
+      if (!boxId || !sceneId) return;
+      _mutateFocusTextBox(sceneId, boxId, b => { b[field] = e.target.value; });
+    });
+
+    return panel;
+  }
+
   function _buildFocusNavBar() {
     const existing = document.getElementById('focus-nav-bar');
     if (existing) existing.remove();
@@ -3309,7 +3443,8 @@ App.Grid = (function() {
       btn.addEventListener('click', () => _focusNavigate(d));
       bar.appendChild(btn);
     });
-    document.getElementById('image-grid').appendChild(bar);
+    const anchor = document.querySelector('.focus-current-img') || document.getElementById('image-grid');
+    anchor.appendChild(bar);
   }
 
   // Arrow key navigation in focus mode
@@ -3655,25 +3790,7 @@ App.Editor = (function() {
   }
 
   // ── Text box helpers ─────────────────────────────────────
-
-  const TEXT_BOX_COLORS = [
-    { name: 'white',   hex: '#ffffff' },
-    { name: 'silver',  hex: '#b0b0b0' },
-    { name: 'red',     hex: '#e74c3c' },
-    { name: 'maroon',  hex: '#922b21' },
-    { name: 'orange',  hex: '#e67e22' },
-    { name: 'yellow',  hex: '#f1c40f' },
-    { name: 'lime',    hex: '#2ecc71' },
-    { name: 'green',   hex: '#1e8449' },
-    { name: 'teal',    hex: '#17a589' },
-    { name: 'cyan',    hex: '#00bcd4' },
-    { name: 'blue',    hex: '#3498db' },
-    { name: 'navy',    hex: '#1a5276' },
-    { name: 'indigo',  hex: '#6c3483' },
-    { name: 'magenta', hex: '#e91e63' },
-    { name: 'pink',    hex: '#f48fb1' },
-    { name: 'brown',   hex: '#795548' },
-  ];
+  // Color table lives at App.TEXT_BOX_COLORS (shared with Grid module)
 
   function _renderTextBoxes(scene) {
     const container = document.getElementById('ed-text-boxes');
@@ -3692,7 +3809,7 @@ App.Editor = (function() {
 
     const swatches = document.createElement('div');
     swatches.className = 'text-box-swatches';
-    TEXT_BOX_COLORS.forEach(c => {
+    App.TEXT_BOX_COLORS.forEach(c => {
       const sw = document.createElement('span');
       sw.className = 'text-box-swatch' + (box.color === c.name ? ' selected' : '');
       sw.style.background = c.hex;
