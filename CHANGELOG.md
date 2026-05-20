@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-20 — Redo support and header toolbar layout tweaks
+
+- **Redo system**: added a redo stack to `App.Undo`. New mutations clear it; performing undo saves the current state onto the redo stack; `redo()` does the reverse. Keyboard shortcuts: Ctrl+Y and Ctrl+Shift+Z.
+- **Header reorder**: Undo and Redo buttons now appear to the left of the view-toggle group (was: Undo appeared to the right). Order is now: tree controls → Undo → Redo → view toggle.
+- **Larger view-toggle buttons**: padding increased from `4px 10px` to `7px 18px`, font size from 15px to 17px, with 12px margin on each side.
+
 ## 2026-05-20 — Replace single narrative field with multiple text boxes per scene
 
 - **Data model**: `scene.narrative` (string) replaced by `scene.textBoxes` (array of `{ id, header, color, text }`). Each box has a free-form header label, one of 16 preset colors, and a text body.

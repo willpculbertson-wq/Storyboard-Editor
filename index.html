@@ -368,8 +368,8 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 #char-import-preview{font-size:12px;color:var(--text-1)}
 
 /* ── VIEW TOGGLE ───────────────────────────────────────── */
-.view-toggle{display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-right:4px}
-.view-btn{border-radius:0;border:none;border-right:1px solid var(--border);padding:4px 10px;font-size:15px;line-height:1;background:var(--bg-2);color:var(--text-1)}
+.view-toggle{display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin:0 12px}
+.view-btn{border-radius:0;border:none;border-right:1px solid var(--border);padding:7px 18px;font-size:17px;line-height:1;background:var(--bg-2);color:var(--text-1)}
 .view-btn:last-child{border-right:none}
 .view-btn:hover{background:var(--bg-3);color:var(--text-0)}
 .view-btn.active{background:var(--accent);color:#fff}
@@ -668,16 +668,17 @@ button:disabled:hover{background:var(--bg-3)}
     <button id="btn-home" title="Back to projects" style="font-size:18px;background:transparent;padding:4px 6px">⌂</button>
     <input id="project-title" type="text" value="Untitled Project" spellcheck="false">
     <span id="save-indicator">Saved</span>
-    <div class="view-toggle" id="view-toggle" style="margin-left:16px">
-      <button class="view-btn" data-view="list"  title="List view">≡</button>
-      <button class="view-btn" data-view="grid"  title="Grid view">⊞</button>
-      <button class="view-btn" data-view="focus" title="Focus view">⊟</button>
-    </div>
     <div class="tree-btn-group">
       <button id="btn-collapse-all">Collapse All</button>
       <button id="btn-expand-all">Expand All</button>
     </div>
     <button id="btn-undo" disabled title="Undo (Ctrl+Z)" style="margin-left:8px">↩ Undo</button>
+    <button id="btn-redo" disabled title="Redo (Ctrl+Y)">Redo ↪</button>
+    <div class="view-toggle" id="view-toggle">
+      <button class="view-btn" data-view="list"  title="List view">≡</button>
+      <button class="view-btn" data-view="grid"  title="Grid view">⊞</button>
+      <button class="view-btn" data-view="focus" title="Focus view">⊟</button>
+    </div>
     <div class="header-spacer"></div>
     <div class="header-btns">
       <div class="stat-chip" title="Included scenes"><span class="dot dot-green"></span><span id="stat-included">0</span> included</div>
@@ -1264,7 +1265,8 @@ function migrateProject(p) {
 // ═══════════════════════════════════════════════════════
 App.Undo = (function() {
   const LIMIT = 50;
-  let _stack = []; // array of JSON strings (project snapshots)
+  let _stack = [];      // undo stack — array of JSON strings
+  let _redoStack = [];  // redo stack — cleared on every new mutation
   let _persistTimer = null;
 
   function _key() {
@@ -1283,33 +1285,38 @@ App.Undo = (function() {
     _persistTimer = setTimeout(_persist, 2000);
   }
 
-  function _updateBtn() {
-    const btn = document.getElementById('btn-undo');
-    if (btn) btn.disabled = !canUndo();
+  function _updateBtns() {
+    const u = document.getElementById('btn-undo');
+    const r = document.getElementById('btn-redo');
+    if (u) u.disabled = !canUndo();
+    if (r) r.disabled = !canRedo();
   }
 
   function push(snapshot) {
     _stack.push(JSON.stringify(snapshot));
     if (_stack.length > LIMIT) _stack.shift();
+    _redoStack = []; // new mutation clears redo history
     _deferPersist();
-    _updateBtn();
+    _updateBtns();
   }
 
   function pop() {
     if (!_stack.length) return null;
     const snap = JSON.parse(_stack.pop());
     _persist();
-    _updateBtn();
+    _updateBtns();
     return snap;
   }
 
   function canUndo() { return _stack.length > 0; }
+  function canRedo() { return _redoStack.length > 0; }
 
   function clear() {
     _stack = [];
+    _redoStack = [];
     clearTimeout(_persistTimer);
     try { localStorage.removeItem(_key()); } catch(e) {}
-    _updateBtn();
+    _updateBtns();
   }
 
   function load() {
@@ -1317,12 +1324,24 @@ App.Undo = (function() {
       const saved = localStorage.getItem(_key());
       _stack = saved ? JSON.parse(saved) : [];
     } catch(e) { _stack = []; }
-    _updateBtn();
+    _redoStack = [];
+    _updateBtns();
+  }
+
+  function _currentSnapshot() {
+    const project = App.State.get('project');
+    if (!project) return null;
+    return {
+      project: JSON.parse(JSON.stringify(project)),
+      selectedCards: [...(App.State.get('selectedCards') || [])],
+    };
   }
 
   function perform() {
     const snap = pop();
     if (!snap) return;
+    const before = _currentSnapshot();
+    if (before) _redoStack.push(JSON.stringify(before));
     const projectSnap = (snap && Array.isArray(snap.selectedCards)) ? snap.project : snap;
     const selSnap     = (snap && Array.isArray(snap.selectedCards)) ? snap.selectedCards : [];
     const sel = App.State.get('selectedCards');
@@ -1330,9 +1349,25 @@ App.Undo = (function() {
     selSnap.forEach(id => sel.add(id));
     App.State.restoreProject(projectSnap);
     App.Filters?.updateBulkBar();
+    _updateBtns();
   }
 
-  return { push, pop, canUndo, clear, load, perform };
+  function redo() {
+    if (!_redoStack.length) return;
+    const snap = JSON.parse(_redoStack.pop());
+    const before = _currentSnapshot();
+    if (before) { _stack.push(JSON.stringify(before)); _deferPersist(); }
+    const projectSnap = (snap && Array.isArray(snap.selectedCards)) ? snap.project : snap;
+    const selSnap     = (snap && Array.isArray(snap.selectedCards)) ? snap.selectedCards : [];
+    const sel = App.State.get('selectedCards');
+    sel.clear();
+    selSnap.forEach(id => sel.add(id));
+    App.State.restoreProject(projectSnap);
+    App.Filters?.updateBulkBar();
+    _updateBtns();
+  }
+
+  return { push, pop, canUndo, canRedo, clear, load, perform, redo };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -4770,10 +4805,16 @@ App.StartScreen = (function() {
 // HEADER WIRING
 // ═══════════════════════════════════════════════════════
 document.getElementById('btn-undo').addEventListener('click', () => App.Undo.perform());
+document.getElementById('btn-redo').addEventListener('click', () => App.Undo.redo());
 document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     e.preventDefault();
     App.Undo.perform();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+    e.preventDefault();
+    App.Undo.redo();
     return;
   }
   if (e.key === 'Escape') {
