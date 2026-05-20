@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-20 — Add "Jump to img" number input in header toolbar
+
+- **New jump widget**: a compact number input labeled "Img" sits between the Undo/Redo buttons and the view switcher in all views. Entering a number and pressing Enter (or blurring) selects the nth *included* image in unfiltered sequence order and scrolls it into view (or re-centers the focus filmstrip on it).
+- **Total count display**: a "/ N" span next to the input shows the live count of included images, updated on every render.
+- **Narrowed project title**: `#project-title` max-width reduced from 260 px to 160 px to reclaim header space for the new widget.
+
 ## 2026-05-20 — Text box UI tweaks: inline placement and reduced color palette
 
 - **Text boxes below active image**: in branch focus view, the color/header/text panel now appears directly below the active lane's current image (inside the main mini-cell) rather than at the bottom of the branch cell. In flat focus view it was already inline — no change there.

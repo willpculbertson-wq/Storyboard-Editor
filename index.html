@@ -65,12 +65,16 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 }
 #project-title{
   font-size:15px;font-weight:600;background:transparent;border:1px solid transparent;
-  border-radius:var(--radius);padding:3px 6px;cursor:text;flex:0 0 auto;max-width:260px;
+  border-radius:var(--radius);padding:3px 6px;cursor:text;flex:0 0 auto;max-width:160px;
   color:var(--text-0);
 }
 #project-title:hover{border-color:var(--border)}
 #project-title:focus{border-color:var(--accent);outline:none;background:var(--bg-2)}
 #save-indicator{font-size:11px;margin-left:4px;min-width:50px;transition:opacity .5s;opacity:0}
+#jump-label{font-size:11px;color:var(--text-2);margin-left:4px;white-space:nowrap}
+#jump-input{width:52px;font-size:12px;text-align:center;padding:3px 4px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-2);color:var(--text-0)}
+#jump-input:focus{border-color:var(--accent);outline:none}
+#jump-total{font-size:11px;color:var(--text-2);white-space:nowrap}
 #save-indicator.saving{color:var(--yellow);opacity:1}
 #save-indicator.saved{color:var(--green);opacity:1}
 .header-spacer{flex:1}
@@ -669,6 +673,9 @@ button:disabled:hover{background:var(--bg-3)}
     <span id="save-indicator">Saved</span>
     <button id="btn-undo" disabled title="Undo (Ctrl+Z)" style="margin-left:8px">↩ Undo</button>
     <button id="btn-redo" disabled title="Redo (Ctrl+Y)">Redo ↪</button>
+    <span id="jump-label">Img</span>
+    <input id="jump-input" type="number" min="1" step="1" title="Jump to included image number" placeholder="#">
+    <span id="jump-total"></span>
     <div class="view-toggle" id="view-toggle">
       <button class="view-btn" data-view="list"  title="List view">≡</button>
       <button class="view-btn" data-view="grid"  title="Grid view">⊞</button>
@@ -2255,8 +2262,17 @@ App.Grid = (function() {
     return scenes.filter(s => _passesFilter(s, filter));
   }
 
+  function _updateJumpTotal() {
+    const project = App.State.get('project');
+    const el = document.getElementById('jump-total');
+    if (!el) return;
+    const n = project ? App.Seq.flatScenes(project.sequence).filter(s => s.status === 'included').length : 0;
+    el.textContent = n > 0 ? `/ ${n}` : '';
+  }
+
   function render() {
     if (!_inner) return;
+    _updateJumpTotal();
     const project = App.State.get('project');
     const mode = App.State.get('viewMode');
 
@@ -5046,6 +5062,39 @@ document.getElementById('btn-chars').addEventListener('click', () => App.CharMgr
 document.getElementById('btn-vars').addEventListener('click', () => App.VarMgr.open());
 document.getElementById('btn-export').addEventListener('click', () => document.getElementById('export-dialog').showModal());
 document.getElementById('btn-batch').addEventListener('click', () => App.BatchEdit.open());
+
+(function() {
+  const input = document.getElementById('jump-input');
+
+  function jumpToImage() {
+    const rawN = parseInt(input.value, 10);
+    if (!rawN || rawN < 1) return;
+    const project = App.State.get('project');
+    if (!project) return;
+    const included = App.Seq.flatScenes(project.sequence).filter(s => s.status === 'included');
+    if (!included.length) return;
+    const n = Math.min(included.length, rawN);
+    input.value = n;
+    const scene = included[n - 1];
+    App.Editor.open(scene.id);
+    const mode = App.State.get('viewMode');
+    if (mode === 'focus') {
+      App.Grid.render();
+    } else {
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-scene-id="${scene.id}"]`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
+  }
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); jumpToImage(); input.blur(); }
+  });
+  input.addEventListener('blur', () => {
+    if (input.value !== '') jumpToImage();
+  });
+})();
 
 document.getElementById('view-toggle').addEventListener('click', e => {
   const btn = e.target.closest('.view-btn');
