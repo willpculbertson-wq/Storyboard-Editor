@@ -426,14 +426,20 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .focus-placeholder.focus-near{flex:2 0 0}
 .focus-placeholder.focus-far{flex:1 0 0}
 
-/* ── FOCUS VIEW — BRANCHED (stacked lanes) ──────────────── */
-#image-grid-inner.focus-branch-view{
-  display:flex;flex-direction:column;gap:6px;
-  padding:12px;height:100%;box-sizing:border-box;
-}
-.focus-branch-lane{display:flex;align-items:center;gap:6px;flex:1;min-height:0;overflow:hidden}
-.focus-branch-lane.passive{opacity:.45}
-.focus-cell.focus-passive-current{flex:6 0 0;cursor:pointer;aspect-ratio:unset;align-self:stretch}
+/* ── FOCUS VIEW — BRANCH SLOT ──────────────────────────── */
+.focus-branch-icon{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;height:100%}
+.focus-branch-icon .branch-glyph{font-size:2em;line-height:1;color:var(--text-1)}
+.focus-branch-icon .branch-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2)}
+.focus-branch-cell{display:flex;flex-direction:column;height:100%;overflow:hidden}
+.focus-branch-tracks{flex:1;min-height:0;display:flex;flex-direction:column;gap:4px;padding:6px;position:relative}
+.focus-branch-track{display:flex;align-items:stretch;gap:3px;flex:1;min-height:0;border-radius:var(--radius);overflow:hidden}
+.focus-branch-track.passive{opacity:.45;cursor:pointer}
+.focus-branch-mini{flex:1 0 0;min-width:0;position:relative;overflow:hidden;background:var(--bg-0);border-radius:var(--radius);border:2px solid transparent}
+.focus-branch-main{flex:2 0 0;min-width:0;position:relative;overflow:hidden;background:var(--bg-0);border-radius:var(--radius);border:2px solid transparent}
+.focus-branch-mini img,.focus-branch-main img{width:100%;height:100%;object-fit:contain;display:block}
+.focus-branch-mini[data-status="included"],.focus-branch-main[data-status="included"]{border-color:var(--green)}
+.focus-branch-mini[data-status="excluded"],.focus-branch-main[data-status="excluded"]{border-color:var(--red)}
+.focus-branch-mini[data-status="maybe"],.focus-branch-main[data-status="maybe"]{border-color:var(--yellow)}
 
 /* ── VARIABLES DIALOG ──────────────────────────────────── */
 #variables-dialog{width:520px}
@@ -2823,101 +2829,85 @@ App.Grid = (function() {
   }
 
   // ── Focus view ──────────────────────────────────────────
-  let _focusLaneScenes = null; // active lane scenes in branch mode (for nav)
-  let _focusBranchData = null; // persists lane center positions across branch re-renders
+  let _focusNavSeq   = [];    // [{type:'scene',scene} | {type:'branch',branchEl}]
+  let _focusNavIdx   = -1;    // current slot in _focusNavSeq
+  let _focusBranchData = null; // {branchEl,lanes,activeLaneIdx,laneCenterIdxs} when inside branch
 
-  // Returns { branchEl, preBranchScene, postBranchScene } for the innermost branch
-  // whose lane contains sceneId, or null if sceneId is not inside any branch.
-  function _findBranchContext(sequence, sceneId) {
-    let result = null;
-
-    function _lastScene(seq) {
-      for (let i = seq.length - 1; i >= 0; i--) {
-        const el = seq[i];
-        if (el.type === 'scene') return el;
-        if (el.type === 'group' && Array.isArray(el.sequence)) {
-          const s = _lastScene(el.sequence);
-          if (s) return s;
-        }
-      }
-      return null;
-    }
-
-    function _firstScene(seq) {
+  // Virtual nav sequence: branch_split elements become single units; their lane
+  // scenes are excluded (accessed only via the branch center view).
+  function _buildFocusNavSeq(projectSeq, filteredIds) {
+    const nav = [];
+    function walk(seq) {
       for (const el of seq) {
-        if (el.type === 'scene') return el;
-        if (el.type === 'group' && Array.isArray(el.sequence)) {
-          const s = _firstScene(el.sequence);
-          if (s) return s;
-        }
-      }
-      return null;
-    }
-
-    function _w(seq) {
-      if (result) return;
-      for (let i = 0; i < seq.length; i++) {
-        const el = seq[i];
-        if (el.type === 'branch_split' && Array.isArray(el.lanes)) {
-          // Recurse into lanes first so innermost branch wins
-          for (const lane of el.lanes) {
-            if (Array.isArray(lane.sequence)) _w(lane.sequence);
-          }
-          if (result) return;
-          // Check if sceneId lives anywhere in this branch
-          for (const lane of el.lanes) {
-            if (!Array.isArray(lane.sequence)) continue;
-            if (App.Seq.findById(lane.sequence, sceneId)) {
-              let preBranchScene = null;
-              for (let j = i - 1; j >= 0; j--) {
-                const pre = seq[j];
-                if (pre.type === 'scene') { preBranchScene = pre; break; }
-                if (pre.type === 'group' && Array.isArray(pre.sequence)) {
-                  preBranchScene = _lastScene(pre.sequence);
-                  if (preBranchScene) break;
-                }
-              }
-              let postBranchScene = null;
-              for (let j = i + 1; j < seq.length; j++) {
-                const post = seq[j];
-                if (post.type === 'scene') { postBranchScene = post; break; }
-                if (post.type === 'group' && Array.isArray(post.sequence)) {
-                  postBranchScene = _firstScene(post.sequence);
-                  if (postBranchScene) break;
-                }
-              }
-              result = { branchEl: el, preBranchScene, postBranchScene };
-              return;
-            }
-          }
+        if (el.type === 'scene') {
+          if (filteredIds.has(el.id)) nav.push({ type: 'scene', scene: el });
+        } else if (el.type === 'branch_split' && Array.isArray(el.lanes)) {
+          nav.push({ type: 'branch', branchEl: el });
         } else if (el.type === 'group' && Array.isArray(el.sequence)) {
-          _w(el.sequence);
+          walk(el.sequence);
         }
       }
     }
-
-    _w(sequence);
-    return result;
+    walk(projectSeq);
+    return nav;
   }
 
   function _renderFocus(scenes) {
     const project = App.State.get('project');
+    if (!project) return;
+
+    const filteredIds = new Set(scenes.map(s => s.id));
+    _focusNavSeq = _buildFocusNavSeq(project.sequence, filteredIds);
+
     const selectedId = App.State.get('selectedSceneId');
-    const ctx = project ? _findBranchContext(project.sequence, selectedId) : null;
-    if (ctx) _renderFocusBranched(ctx, selectedId);
-    else     _renderFocusFlat(scenes);
+
+    if (_focusBranchData) {
+      // Re-locate branch in the rebuilt navSeq
+      const branchId = _focusBranchData.branchEl.id;
+      _focusNavIdx = _focusNavSeq.findIndex(u => u.type === 'branch' && u.branchEl.id === branchId);
+      if (_focusNavIdx < 0) _focusBranchData = null;
+    }
+
+    if (!_focusBranchData) {
+      _focusNavIdx = _focusNavSeq.findIndex(u => u.type === 'scene' && u.scene.id === selectedId);
+      if (_focusNavIdx < 0) {
+        // Selected scene may be inside a branch — recover
+        for (let i = 0; i < _focusNavSeq.length; i++) {
+          const unit = _focusNavSeq[i];
+          if (unit.type !== 'branch') continue;
+          for (const lane of unit.branchEl.lanes) {
+            if (App.Seq.findById(lane.sequence || [], selectedId)) {
+              const lanes = unit.branchEl.lanes.map(l => App.Seq.flatScenes(l.sequence || []));
+              const ali = Math.max(0, lanes.findIndex(ls => ls.some(s => s.id === selectedId)));
+              _focusBranchData = {
+                branchEl: unit.branchEl, lanes,
+                activeLaneIdx: ali,
+                laneCenterIdxs: lanes.map(ls => Math.max(0, ls.findIndex(s => s.id === selectedId))),
+              };
+              _focusNavIdx = i;
+              break;
+            }
+          }
+          if (_focusBranchData) break;
+        }
+      }
+      if (_focusNavIdx < 0 && _focusNavSeq.length > 0) _focusNavIdx = 0;
+    }
+
+    _renderFocusAtIdx();
   }
 
-  function _renderFocusFlat(scenes) {
-    _focusLaneScenes = null;
-    _focusBranchData = null;
+  function _renderFocusAtIdx() {
     document.getElementById('image-grid').classList.add('focus-mode');
     _inner.className = 'focus-view';
     _inner.innerHTML = '';
 
-    const selectedId = App.State.get('selectedSceneId');
-    let centerIdx = scenes.findIndex(s => s.id === selectedId);
-    if (centerIdx < 0) centerIdx = 0;
+    // Defensive: if centered on a branch with no branch data, initialize it
+    const centerUnit = _focusNavSeq[_focusNavIdx];
+    if (centerUnit?.type === 'branch' && !_focusBranchData) {
+      const lanes = centerUnit.branchEl.lanes.map(l => App.Seq.flatScenes(l.sequence || []));
+      _focusBranchData = { branchEl: centerUnit.branchEl, lanes, activeLaneIdx: 0, laneCenterIdxs: lanes.map(() => 0) };
+    }
 
     const slots = [
       { offset: -2, cls: 'focus-far' },
@@ -2929,147 +2919,143 @@ App.Grid = (function() {
 
     const frag = document.createDocumentFragment();
     slots.forEach(({ offset, cls }) => {
-      const scene = scenes[centerIdx + offset];
-      if (!scene) {
+      const unit = _focusNavSeq[_focusNavIdx + offset];
+      if (!unit) {
         const ph = document.createElement('div');
         ph.className = `focus-placeholder ${cls}`;
         frag.appendChild(ph);
         return;
       }
-      const cell = document.createElement('div');
-      cell.className = `focus-cell ${cls}`;
-      cell.dataset.sceneId = scene.id;
-      cell.dataset.status = scene.status || 'untagged';
-
-      const img = document.createElement('img');
-      img.alt = scene.asset.path;
-      const lbl = document.createElement('div');
-      lbl.className = 'focus-label';
-      lbl.textContent = scene.asset.path;
-
-      if (offset === 0) {
-        const imgWrap = document.createElement('div');
-        imgWrap.className = 'focus-current-img';
-        imgWrap.appendChild(img);
-        imgWrap.appendChild(lbl);
-        cell.appendChild(imgWrap);
-        cell.appendChild(_buildFocusTextBoxesPanel(scene));
-      } else {
-        cell.appendChild(img);
-        cell.appendChild(lbl);
-        cell.title = scene.asset.path;
-        cell.addEventListener('click', () => App.Editor.open(scene.id));
-      }
-      frag.appendChild(cell);
-      App.LazyLoader.observe(cell);
+      const isCurrent = offset === 0;
+      if (unit.type === 'scene') frag.appendChild(_buildFocusSceneCell(unit.scene, cls, isCurrent));
+      else                        frag.appendChild(_buildFocusBranchCell(unit.branchEl, cls, isCurrent));
     });
+
     _inner.appendChild(frag);
     _buildFocusNavBar();
   }
 
-  function _renderFocusBranched(ctx, selectedId) {
-    const { branchEl, preBranchScene, postBranchScene } = ctx;
+  function _buildFocusSceneCell(scene, cls, isCurrent) {
+    const cell = document.createElement('div');
+    cell.className = `focus-cell ${cls}`;
+    cell.dataset.sceneId = scene.id;
+    cell.dataset.status = scene.status || 'untagged';
 
-    document.getElementById('image-grid').classList.add('focus-mode');
-    _inner.className = 'focus-branch-view';
-    _inner.innerHTML = '';
+    const img = document.createElement('img');
+    img.alt = scene.asset.path;
+    const lbl = document.createElement('div');
+    lbl.className = 'focus-label';
+    lbl.textContent = scene.asset.path;
 
-    const lanes = branchEl.lanes.map(l => App.Seq.flatScenes(l.sequence || []));
+    if (isCurrent) {
+      const imgWrap = document.createElement('div');
+      imgWrap.className = 'focus-current-img';
+      imgWrap.appendChild(img);
+      imgWrap.appendChild(lbl);
+      cell.appendChild(imgWrap);
+      cell.appendChild(_buildFocusTextBoxesPanel(scene));
+    } else {
+      cell.appendChild(img);
+      cell.appendChild(lbl);
+      cell.title = scene.asset.path;
+      cell.addEventListener('click', () => App.Editor.open(scene.id));
+    }
+    App.LazyLoader.observe(cell);
+    return cell;
+  }
 
-    // Determine active lane index and per-lane center positions.
-    // Inherit state from previous render if we're still in the same branch.
-    const sameCtx = _focusBranchData &&
-      _focusBranchData.preBranchSceneId === (preBranchScene?.id ?? null) &&
-      _focusBranchData.postBranchSceneId === (postBranchScene?.id ?? null) &&
-      _focusBranchData.lanes.length === lanes.length;
+  function _buildFocusBranchCell(branchEl, cls, isCurrent) {
+    const cell = document.createElement('div');
+    cell.className = `focus-cell ${cls}`;
 
-    let activeLaneIdx = sameCtx ? _focusBranchData.activeLaneIdx : 0;
-    let laneCenterIdxs = sameCtx ? _focusBranchData.laneCenterIdxs.slice() : lanes.map(() => 0);
-
-    // Update active lane and center based on which lane contains selectedId.
-    for (let i = 0; i < lanes.length; i++) {
-      const idx = lanes[i].findIndex(s => s.id === selectedId);
-      if (idx >= 0) { activeLaneIdx = i; laneCenterIdxs[i] = idx; break; }
+    if (!isCurrent) {
+      const icon = document.createElement('div');
+      icon.className = 'focus-branch-icon';
+      const glyph = document.createElement('span');
+      glyph.className = 'branch-glyph';
+      glyph.textContent = '⑂';
+      const lbl = document.createElement('span');
+      lbl.className = 'branch-label';
+      lbl.textContent = branchEl.label || 'Branch';
+      icon.appendChild(glyph);
+      icon.appendChild(lbl);
+      cell.appendChild(icon);
+      cell.addEventListener('click', () => {
+        const idx = _focusNavSeq.findIndex(u => u.type === 'branch' && u.branchEl.id === branchEl.id);
+        if (idx >= 0) _enterBranch(_focusNavSeq[idx], idx);
+      });
+      return cell;
     }
 
-    _focusBranchData = { branchEl, lanes, activeLaneIdx, laneCenterIdxs,
-      preBranchSceneId: preBranchScene?.id ?? null,
-      postBranchSceneId: postBranchScene?.id ?? null };
-    _focusLaneScenes = lanes[activeLaneIdx];
+    // Center slot: dual-track mini-strips reading from _focusBranchData
+    cell.style.cursor = 'default';
+    const { lanes, activeLaneIdx, laneCenterIdxs } = _focusBranchData;
+    const activeScene = lanes[activeLaneIdx]?.[laneCenterIdxs[activeLaneIdx]] ?? null;
 
-    const slots = [
-      { offset: -2, cls: 'focus-far' },
-      { offset: -1, cls: 'focus-near' },
-      { offset:  0, cls: null }, // cls set per-lane below
-      { offset:  1, cls: 'focus-near' },
-      { offset:  2, cls: 'focus-far' },
-    ];
+    const branchCellInner = document.createElement('div');
+    branchCellInner.className = 'focus-branch-cell';
 
-    const frag = document.createDocumentFragment();
+    const tracksEl = document.createElement('div');
+    tracksEl.className = 'focus-branch-tracks';
 
     lanes.forEach((laneScenes, laneIdx) => {
       const isActive = laneIdx === activeLaneIdx;
       const centerIdx = laneCenterIdxs[laneIdx];
 
-      const laneEl = document.createElement('div');
-      laneEl.className = 'focus-branch-lane' + (isActive ? '' : ' passive');
+      const track = document.createElement('div');
+      track.className = 'focus-branch-track' + (isActive ? '' : ' passive');
+      if (!isActive) {
+        track.addEventListener('click', () => {
+          _focusBranchData.activeLaneIdx = laneIdx;
+          const t = _focusBranchData.lanes[laneIdx]?.[_focusBranchData.laneCenterIdxs[laneIdx]];
+          if (t) App.Editor.open(t.id);
+          else _renderFocusAtIdx();
+        });
+      }
 
-      slots.forEach(({ offset, cls }) => {
-        const centerCls = isActive ? 'focus-current' : 'focus-passive-current';
-        const cellCls = offset === 0 ? centerCls : cls;
+      [{ mo: -1, mcls: 'focus-branch-mini' }, { mo: 0, mcls: 'focus-branch-main' }, { mo: 1, mcls: 'focus-branch-mini' }]
+        .forEach(({ mo, mcls }) => {
+          const sceneIdx = centerIdx + mo;
+          const scene = laneScenes[sceneIdx] ?? null;
+          const miniCell = document.createElement('div');
+          miniCell.className = mcls;
+          if (scene) {
+            miniCell.dataset.sceneId = scene.id;
+            miniCell.dataset.status = scene.status || 'untagged';
+            const img = document.createElement('img');
+            img.alt = scene.asset.path;
+            miniCell.appendChild(img);
+            miniCell.title = scene.asset.path;
+            if (!isActive || mo !== 0) {
+              miniCell.style.cursor = 'pointer';
+              miniCell.addEventListener('click', e => {
+                e.stopPropagation();
+                _focusBranchData.activeLaneIdx = laneIdx;
+                _focusBranchData.laneCenterIdxs[laneIdx] = sceneIdx;
+                App.Editor.open(scene.id);
+              });
+            }
+            App.LazyLoader.observe(miniCell);
+          }
+          track.appendChild(miniCell);
+        });
 
-        // Resolve which scene to show in this slot.
-        const laneSceneIdx = centerIdx + offset;
-        let scene = null;
-        if (laneSceneIdx >= 0 && laneSceneIdx < laneScenes.length) {
-          scene = laneScenes[laneSceneIdx];
-        } else if (isActive && laneSceneIdx === -1) {
-          scene = preBranchScene;
-        } else if (isActive && laneSceneIdx === laneScenes.length) {
-          scene = postBranchScene;
-        }
-
-        if (!scene) {
-          const ph = document.createElement('div');
-          ph.className = `focus-placeholder ${cellCls}`;
-          laneEl.appendChild(ph);
-          return;
-        }
-
-        const cell = document.createElement('div');
-        cell.className = `focus-cell ${cellCls}`;
-        cell.dataset.sceneId = scene.id;
-        cell.dataset.status = scene.status || 'untagged';
-
-        const img = document.createElement('img');
-        img.alt = scene.asset.path;
-        const lbl = document.createElement('div');
-        lbl.className = 'focus-label';
-        lbl.textContent = scene.asset.path;
-
-        if (offset === 0 && isActive) {
-          const imgWrap = document.createElement('div');
-          imgWrap.className = 'focus-current-img';
-          imgWrap.appendChild(img);
-          imgWrap.appendChild(lbl);
-          cell.appendChild(imgWrap);
-          cell.appendChild(_buildFocusTextBoxesPanel(scene));
-        } else {
-          cell.appendChild(img);
-          cell.appendChild(lbl);
-          cell.title = scene.asset.path;
-          cell.addEventListener('click', () => App.Editor.open(scene.id));
-        }
-
-        laneEl.appendChild(cell);
-        App.LazyLoader.observe(cell);
-      });
-
-      frag.appendChild(laneEl);
+      tracksEl.appendChild(track);
     });
 
-    _inner.appendChild(frag);
-    _buildFocusNavBar();
+    branchCellInner.appendChild(tracksEl);
+    if (activeScene) branchCellInner.appendChild(_buildFocusTextBoxesPanel(activeScene));
+    cell.appendChild(branchCellInner);
+    return cell;
+  }
+
+  function _enterBranch(branchEntry, navIdx) {
+    _focusNavIdx = navIdx;
+    const lanes = branchEntry.branchEl.lanes.map(l => App.Seq.flatScenes(l.sequence || []));
+    _focusBranchData = { branchEl: branchEntry.branchEl, lanes, activeLaneIdx: 0, laneCenterIdxs: lanes.map(() => 0) };
+    const firstScene = lanes[0]?.[0];
+    if (firstScene) App.Editor.open(firstScene.id);
+    else _renderFocusAtIdx();
   }
 
   // ── List view ───────────────────────────────────────────
@@ -3394,28 +3380,29 @@ App.Grid = (function() {
 
   function _focusNavigate(delta) {
     if (_focusBranchData) {
-      const { lanes, activeLaneIdx, laneCenterIdxs, preBranchSceneId, postBranchSceneId } = _focusBranchData;
-      const laneScenes = lanes[activeLaneIdx];
-      const newIdx = laneCenterIdxs[activeLaneIdx] + delta;
-      if (newIdx < 0) {
-        const project = App.State.get('project');
-        const pre = preBranchSceneId && project
-          ? App.Seq.findSceneById(project.sequence, preBranchSceneId) : null;
-        if (pre) App.Editor.open(pre.id);
-      } else if (newIdx >= laneScenes.length) {
-        const project = App.State.get('project');
-        const post = postBranchSceneId && project
-          ? App.Seq.findSceneById(project.sequence, postBranchSceneId) : null;
-        if (post) App.Editor.open(post.id);
+      const { lanes, activeLaneIdx, laneCenterIdxs } = _focusBranchData;
+      const laneScenes = lanes[activeLaneIdx] || [];
+      const newCenter = laneCenterIdxs[activeLaneIdx] + delta;
+      if (newCenter < 0 || newCenter >= laneScenes.length) {
+        // Exit branch left or right
+        _focusBranchData = null;
+        _focusNavIdx = Math.max(0, Math.min(_focusNavSeq.length - 1, _focusNavIdx + (newCenter < 0 ? -1 : 1)));
+        const target = _focusNavSeq[_focusNavIdx];
+        if (!target) return;
+        if (target.type === 'scene') App.Editor.open(target.scene.id);
+        else _enterBranch(target, _focusNavIdx);
       } else {
-        App.Editor.open(laneScenes[newIdx].id);
+        _focusBranchData.laneCenterIdxs[activeLaneIdx] = newCenter;
+        App.Editor.open(laneScenes[newCenter].id);
       }
       return;
     }
-    const navScenes = _lastFilteredScenes;
-    const idx = navScenes.findIndex(s => s.id === App.State.get('selectedSceneId'));
-    const target = Math.max(0, Math.min(navScenes.length - 1, idx + delta));
-    if (target !== idx) App.Editor.open(navScenes[target].id);
+    const newIdx = _focusNavIdx + delta;
+    if (newIdx < 0 || newIdx >= _focusNavSeq.length) return;
+    _focusNavIdx = newIdx;
+    const target = _focusNavSeq[newIdx];
+    if (target.type === 'scene') App.Editor.open(target.scene.id);
+    else _enterBranch(target, newIdx);
   }
 
   function _mutateFocusTextBox(sceneId, boxId, fn) {
@@ -3528,7 +3515,9 @@ App.Grid = (function() {
       btn.addEventListener('click', () => _focusNavigate(d));
       bar.appendChild(btn);
     });
-    const anchor = document.querySelector('.focus-current-img') || document.getElementById('image-grid');
+    const anchor = document.querySelector('.focus-current-img')
+      || document.querySelector('.focus-branch-tracks')
+      || document.getElementById('image-grid');
     anchor.appendChild(bar);
   }
 
@@ -3546,8 +3535,10 @@ App.Grid = (function() {
         ? Math.min(activeLaneIdx + 1, lanes.length - 1)
         : Math.max(activeLaneIdx - 1, 0);
       if (newLaneIdx !== activeLaneIdx) {
+        _focusBranchData.activeLaneIdx = newLaneIdx;
         const target = lanes[newLaneIdx][laneCenterIdxs[newLaneIdx]];
         if (target) App.Editor.open(target.id);
+        else _renderFocusAtIdx();
       }
     }
   });

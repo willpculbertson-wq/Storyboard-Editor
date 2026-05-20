@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-05-20 — Redesign branch focus view as a single filmstrip slot
+
+- **Branch as one slot**: a `branch_split` now appears as a single unit in the 5-slot focus filmstrip instead of replacing the whole view. In far/near positions it shows a ⑂ branch icon; when it reaches the center slot it expands into the dual-track view.
+- **Virtual nav sequence**: `_buildFocusNavSeq` builds a flat navigation list from the project sequence treating each `branch_split` as one entry. Scenes inside branch lanes are excluded from this list and only accessible via the branch center.
+- **Dual-track center**: when the branch is centered, the center cell shows two stacked horizontal mini-strips (one per lane), each with 3 slots — previous · current · next. Active lane is full opacity with the text boxes panel below; passive lane is 45% opacity and fully clickable.
+- **Fixed outer context**: while navigating inside a branch, the pre- and post-branch scenes stay anchored in the near-left and near-right slots throughout.
+- **Exit on overflow**: pressing ← at the first lane scene or → at the last exits the branch and moves to the adjacent nav unit (which becomes the new center).
+- **Lane switching**: Up/Down arrows or clicking the passive lane track switches the active lane.
+- **Recovery**: if the selected scene is inside a branch when focus mode is entered, the branch is automatically located and entered.
+
 ## 2026-05-20 — Fix toolbar layout shift and rewrite branched focus view
 
 - **Toolbar layout fix**: moved the Collapse/Expand tree controls to after the view-toggle pill in DOM order so they disappear to the right (not the left) when hidden in focus mode. Undo → Redo → view-toggle now always occupy a fixed left position regardless of view.
