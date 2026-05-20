@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-05-20 — Text box UI tweaks: inline placement and reduced color palette
+
+- **Text boxes below active image**: in branch focus view, the color/header/text panel now appears directly below the active lane's current image (inside the main mini-cell) rather than at the bottom of the branch cell. In flat focus view it was already inline — no change there.
+- **Reduced color palette**: trimmed from 16 to 12 colors. Removed lime, teal, cyan, and magenta (indistinguishable mid-shades). Renamed silver → gray, indigo → purple to match user-facing names.
+- **Color migration**: `migrateProject` now remaps removed color names (silver, indigo, lime, teal, cyan, magenta) to their nearest kept equivalent so existing saved data is not broken.
+
 ## 2026-05-20 — Redesign branch focus view as a single filmstrip slot
 
 - **Branch as one slot**: a `branch_split` now appears as a single unit in the 5-slot focus filmstrip instead of replacing the whole view. In far/near positions it shows a ⑂ branch icon; when it reaches the center slot it expands into the dual-track view.

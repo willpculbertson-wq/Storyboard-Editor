@@ -437,6 +437,8 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .focus-branch-mini{flex:1 0 0;min-width:0;position:relative;overflow:hidden;background:var(--bg-0);border-radius:var(--radius);border:2px solid transparent}
 .focus-branch-main{flex:2 0 0;min-width:0;position:relative;overflow:hidden;background:var(--bg-0);border-radius:var(--radius);border:2px solid transparent}
 .focus-branch-mini img,.focus-branch-main img{width:100%;height:100%;object-fit:contain;display:block}
+.focus-branch-track:not(.passive) .focus-branch-main{display:flex;flex-direction:column;overflow:hidden}
+.focus-branch-track:not(.passive) .focus-branch-main>img{flex:1 1 0;min-height:30px;height:auto;width:100%;object-fit:contain;display:block}
 .focus-branch-mini[data-status="included"],.focus-branch-main[data-status="included"]{border-color:var(--green)}
 .focus-branch-mini[data-status="excluded"],.focus-branch-main[data-status="excluded"]{border-color:var(--red)}
 .focus-branch-mini[data-status="maybe"],.focus-branch-main[data-status="maybe"]{border-color:var(--yellow)}
@@ -1253,6 +1255,12 @@ function migrateProject(p) {
       delete el.narrative;
     }
   });
+  // Migrate removed/renamed color names to current palette
+  const _colorRename = { silver: 'gray', indigo: 'purple', lime: 'green', teal: 'blue', cyan: 'blue', magenta: 'pink' };
+  App.Seq.walk(p.sequence, el => {
+    if (el.type !== 'scene') return;
+    (el.textBoxes || []).forEach(box => { if (_colorRename[box.color]) box.color = _colorRename[box.color]; });
+  });
   if (!p.project.version || p.project.version === '1.0.0') p.project.version = '1.1.0';
   return p;
 }
@@ -2022,22 +2030,18 @@ App.CtxMenu = (function() {
 
 // Shared color table for text boxes — used by Editor and Grid modules
 App.TEXT_BOX_COLORS = [
-  { name: 'white',   hex: '#ffffff' },
-  { name: 'silver',  hex: '#b0b0b0' },
-  { name: 'red',     hex: '#e74c3c' },
-  { name: 'maroon',  hex: '#922b21' },
-  { name: 'orange',  hex: '#e67e22' },
-  { name: 'yellow',  hex: '#f1c40f' },
-  { name: 'lime',    hex: '#2ecc71' },
-  { name: 'green',   hex: '#1e8449' },
-  { name: 'teal',    hex: '#17a589' },
-  { name: 'cyan',    hex: '#00bcd4' },
-  { name: 'blue',    hex: '#3498db' },
-  { name: 'navy',    hex: '#1a5276' },
-  { name: 'indigo',  hex: '#6c3483' },
-  { name: 'magenta', hex: '#e91e63' },
-  { name: 'pink',    hex: '#f48fb1' },
-  { name: 'brown',   hex: '#795548' },
+  { name: 'white',  hex: '#ffffff' },
+  { name: 'gray',   hex: '#b0b0b0' },
+  { name: 'red',    hex: '#e74c3c' },
+  { name: 'maroon', hex: '#922b21' },
+  { name: 'orange', hex: '#e67e22' },
+  { name: 'yellow', hex: '#f1c40f' },
+  { name: 'green',  hex: '#1e8449' },
+  { name: 'blue',   hex: '#3498db' },
+  { name: 'navy',   hex: '#1a5276' },
+  { name: 'purple', hex: '#6c3483' },
+  { name: 'pink',   hex: '#f48fb1' },
+  { name: 'brown',  hex: '#795548' },
 ];
 App.TEXT_BOX_COLOR_HEX = new Map(App.TEXT_BOX_COLORS.map(c => [c.name, c.hex]));
 
@@ -3026,7 +3030,10 @@ App.Grid = (function() {
             img.alt = scene.asset.path;
             miniCell.appendChild(img);
             miniCell.title = scene.asset.path;
-            if (!isActive || mo !== 0) {
+            if (isActive && mo === 0) {
+              // Text boxes appear directly below this image
+              miniCell.appendChild(_buildFocusTextBoxesPanel(scene));
+            } else {
               miniCell.style.cursor = 'pointer';
               miniCell.addEventListener('click', e => {
                 e.stopPropagation();
@@ -3044,7 +3051,6 @@ App.Grid = (function() {
     });
 
     branchCellInner.appendChild(tracksEl);
-    if (activeScene) branchCellInner.appendChild(_buildFocusTextBoxesPanel(activeScene));
     cell.appendChild(branchCellInner);
     return cell;
   }
