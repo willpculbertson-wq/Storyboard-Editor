@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-05-20 — Fix toolbar layout shift and rewrite branched focus view
+
+- **Toolbar layout fix**: moved the Collapse/Expand tree controls to after the view-toggle pill in DOM order so they disappear to the right (not the left) when hidden in focus mode. Undo → Redo → view-toggle now always occupy a fixed left position regardless of view.
+- **Branched focus view rewrite**: when the selected scene is inside a `branch_split`, focus view now renders two stacked horizontal strips (one per lane) instead of a thumbnail grid. Each strip shows the same 5-slot layout as flat focus (far · near · center · near · far). The active lane is full-opacity with the text boxes panel; passive lanes are 45% opacity.
+- **Pre/post branch anchoring**: the scene immediately before the branch appears in the near-left slot when centered on the first lane scene; the scene after the branch appears in the near-right slot when at the last lane scene.
+- **Escape navigation**: pressing ← past the first lane scene or → past the last lane scene exits the branch and opens the pre/post branch scene in flat focus view.
+- **Lane switching**: Up/Down arrow keys cycle through lanes; clicking any cell in a passive lane switches to that lane centered on the clicked scene.
+- **State persistence**: lane center positions are preserved across re-renders so passive lanes remember where you left off.
+- **`_findBranchContext` rewrite**: now returns `{ branchEl, preBranchScene, postBranchScene }` and always finds the innermost branch (depth-first recursion before checking each level).
+
 ## 2026-05-20 — Show editable text boxes in focus view
 
 - **Focus view text panel**: the current (center) scene now shows its text boxes below the image. Each entry displays 16 color swatches, a header input, and a text textarea — all editable in place, saving immediately on input.
