@@ -363,7 +363,20 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .view-btn.active{background:var(--accent);color:#fff}
 
 /* ── FOCUS VIEW ─────────────────────────────────────────── */
-#image-grid.focus-mode{overflow:hidden!important;padding:0!important}
+#image-grid.focus-mode{overflow:hidden!important;padding:0!important;position:relative}
+.focus-nav-bar{
+  position:absolute;bottom:12px;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:3px;
+  background:rgba(0,0,0,.6);backdrop-filter:blur(4px);
+  border-radius:var(--radius);padding:4px 8px;z-index:10;pointer-events:auto;
+}
+.focus-nav-btn{
+  background:rgba(255,255,255,.12);border:none;color:var(--text-0);
+  font-size:11px;font-weight:600;cursor:pointer;border-radius:var(--radius);
+  padding:3px 8px;transition:background .1s;white-space:nowrap;
+}
+.focus-nav-btn:hover{background:rgba(255,255,255,.28)}
+.focus-nav-sep{width:1px;height:16px;background:var(--border);margin:0 3px;flex-shrink:0}
 #image-grid-inner.focus-view{display:flex;align-items:center;gap:6px;padding:12px;height:100%;box-sizing:border-box}
 .focus-cell{position:relative;background:var(--bg-0);border-radius:var(--radius);overflow:hidden;cursor:pointer;border:3px solid transparent;min-width:0;aspect-ratio:16/9;transition:border-color .1s,opacity .15s}
 .focus-cell.focus-current{flex:6 0 0;cursor:default}
@@ -2209,12 +2222,17 @@ App.Grid = (function() {
     const g = document.getElementById('image-grid');
     g.classList.remove('focus-mode');
     g.style.padding = '';
+    const nav = document.getElementById('focus-nav-bar');
+    if (nav) nav.remove();
   }
 
   // ── Grid view (tree rendering) ──────────────────────────
   function _renderGridView(sequence) {
-    document.getElementById('image-grid').classList.remove('focus-mode');
-    document.getElementById('image-grid').style.padding = '';
+    const _g = document.getElementById('image-grid');
+    _g.classList.remove('focus-mode');
+    _g.style.padding = '';
+    const _nav = document.getElementById('focus-nav-bar');
+    if (_nav) _nav.remove();
     _inner.className = 'grid-view';
     _inner.innerHTML = '';
 
@@ -2816,6 +2834,7 @@ App.Grid = (function() {
       App.LazyLoader.observe(cell);
     });
     _inner.appendChild(frag);
+    _buildFocusNavBar();
   }
 
   function _renderFocusBranched(branchEl, selectedId) {
@@ -2881,12 +2900,16 @@ App.Grid = (function() {
     });
 
     _inner.appendChild(frag);
+    _buildFocusNavBar();
   }
 
   // ── List view ───────────────────────────────────────────
   function _renderList(scenes) {
-    document.getElementById('image-grid').classList.remove('focus-mode');
-    document.getElementById('image-grid').style.padding = '0';
+    const _g = document.getElementById('image-grid');
+    _g.classList.remove('focus-mode');
+    _g.style.padding = '0';
+    const _nav = document.getElementById('focus-nav-bar');
+    if (_nav) _nav.remove();
     _inner.className = 'list-view';
     _inner.innerHTML = '';
 
@@ -3197,17 +3220,54 @@ App.Grid = (function() {
     render();
   }
 
+  function _focusNavigate(delta) {
+    const navScenes = _focusLaneScenes || _lastFilteredScenes;
+    const idx = navScenes.findIndex(s => s.id === App.State.get('selectedSceneId'));
+    const target = Math.max(0, Math.min(navScenes.length - 1, idx + delta));
+    if (target !== idx) App.Editor.open(navScenes[target].id);
+  }
+
+  function _buildFocusNavBar() {
+    const existing = document.getElementById('focus-nav-bar');
+    if (existing) existing.remove();
+    const bar = document.createElement('div');
+    bar.id = 'focus-nav-bar';
+    bar.className = 'focus-nav-bar';
+    [[-100,'←100'],[-10,'←10'],[-1,'←1']].forEach(([d, label]) => {
+      const btn = document.createElement('button');
+      btn.className = 'focus-nav-btn';
+      btn.textContent = label;
+      btn.addEventListener('click', () => _focusNavigate(d));
+      bar.appendChild(btn);
+    });
+    const sep = document.createElement('div');
+    sep.className = 'focus-nav-sep';
+    bar.appendChild(sep);
+    [[1,'1→'],[10,'10→'],[100,'100→']].forEach(([d, label]) => {
+      const btn = document.createElement('button');
+      btn.className = 'focus-nav-btn';
+      btn.textContent = label;
+      btn.addEventListener('click', () => _focusNavigate(d));
+      bar.appendChild(btn);
+    });
+    document.getElementById('image-grid').appendChild(bar);
+  }
+
   // Arrow key navigation in focus mode
   document.addEventListener('keydown', e => {
     if (App.State.get('viewMode') !== 'focus') return;
     if (e.target.matches('input,textarea,select')) return;
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
-    const navScenes = _focusLaneScenes || _lastFilteredScenes;
-    const idx = navScenes.findIndex(s => s.id === App.State.get('selectedSceneId'));
-    const next = navScenes[idx + (e.key === 'ArrowRight' ? 1 : -1)];
-    if (next) App.Editor.open(next.id);
+    _focusNavigate(e.key === 'ArrowRight' ? 1 : -1);
   });
+
+  // Scroll wheel navigation in focus mode
+  document.getElementById('image-grid').addEventListener('wheel', e => {
+    if (App.State.get('viewMode') !== 'focus') return;
+    e.preventDefault();
+    _focusNavigate(e.deltaY > 0 ? 1 : -1);
+  }, { passive: false });
 
   return {
     init, render, refreshCard, setViewMode,

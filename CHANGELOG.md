@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-05-20 — Add scroll wheel and nav buttons to focus view
+
+- **Scroll wheel navigation**: scrolling down/up in focus mode advances or retreats by one image.
+- **Navigation button bar**: a centered overlay bar at the bottom of focus view shows six buttons — ←100, ←10, ←1, 1→, 10→, 100→ — for jumping by 1, 10, or 100 images in either direction. Works in both flat and branched focus layouts.
+- **`_focusNavigate(delta)` helper**: extracted from the existing keydown handler; shared by keyboard, scroll, and button navigation. Clamps to valid index range.
+- **Cleanup**: nav bar is removed when switching away from focus mode via `_resetGridContainer`, `_renderGridView`, and `_renderList`.
+
 ## 2026-05-17 — Fix inline edit, add lane drops, improve DnD indicators
 
 - **Group name inline edit fix**: added `mousedown`/`click` `stopPropagation` on the input element so clicks within the text field don't bubble to the header's collapse handler.
