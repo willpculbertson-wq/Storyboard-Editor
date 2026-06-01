@@ -393,6 +393,7 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 }
 .focus-nav-btn:hover{background:rgba(255,255,255,.28)}
 .focus-nav-sep{width:1px;height:16px;background:var(--border);margin:0 3px;flex-shrink:0}
+.focus-nav-triage-legend{font-size:10px;color:var(--text-2);margin-left:2px;white-space:nowrap;user-select:none;letter-spacing:.02em}
 #image-grid-inner.focus-view{display:flex;align-items:center;gap:6px;padding:12px;height:100%;box-sizing:border-box}
 .focus-cell{position:relative;background:var(--bg-0);border-radius:var(--radius);overflow:hidden;cursor:pointer;border:3px solid transparent;min-width:0;aspect-ratio:16/9;transition:border-color .1s,opacity .15s}
 .focus-cell.focus-current{flex:6 0 0;cursor:default;aspect-ratio:unset;align-self:stretch;display:flex;flex-direction:column;overflow:hidden}
@@ -3610,13 +3611,21 @@ App.Grid = (function() {
       btn.addEventListener('click', () => _focusNavigate(d));
       bar.appendChild(btn);
     });
+    const sep2 = document.createElement('div');
+    sep2.className = 'focus-nav-sep';
+    bar.appendChild(sep2);
+    const legend = document.createElement('span');
+    legend.className = 'focus-nav-triage-legend';
+    legend.textContent = '1 incl · 2 maybe · 3 excl';
+    bar.appendChild(legend);
     const anchor = document.querySelector('.focus-current-img')
       || document.querySelector('.focus-branch-tracks')
       || document.getElementById('image-grid');
     anchor.appendChild(bar);
   }
 
-  // Arrow key navigation in focus mode
+  // Arrow key navigation + triage hotkeys in focus mode
+  const _TRIAGE_STATUS = { '1': 'included', '2': 'maybe', '3': 'excluded', '0': 'untagged', '`': 'untagged' };
   document.addEventListener('keydown', e => {
     if (App.State.get('viewMode') !== 'focus') return;
     if (e.target.matches('input,textarea,select')) return;
@@ -3634,6 +3643,26 @@ App.Grid = (function() {
         const target = lanes[newLaneIdx][laneCenterIdxs[newLaneIdx]];
         if (target) App.Editor.open(target.id);
         else _renderFocusAtIdx();
+      }
+    } else {
+      const newStatus = _TRIAGE_STATUS[e.key];
+      if (newStatus !== undefined) {
+        e.preventDefault();
+        let targetScene = null;
+        if (_focusBranchData) {
+          const { lanes, activeLaneIdx, laneCenterIdxs } = _focusBranchData;
+          targetScene = lanes[activeLaneIdx]?.[laneCenterIdxs[activeLaneIdx]];
+        } else {
+          const unit = _focusNavSeq[_focusNavIdx];
+          if (unit?.type === 'scene') targetScene = unit.scene;
+        }
+        if (!targetScene) return;
+        const sceneId = targetScene.id;
+        App.State.mutateProjectCoalesced(project => {
+          const scene = App.Seq.findSceneById(project.sequence, sceneId);
+          if (scene) scene.status = newStatus;
+        }, 'triage');
+        _focusNavigate(1);
       }
     }
   });

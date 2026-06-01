@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-06-01 — Add keyboard triage mode for fast status tagging in Focus view
+
+- **Triage hotkeys**: in Focus view, keys `1` / `2` / `3` set the center scene's status to `included` / `maybe` / `excluded`; `0` or `` ` `` resets it to `untagged`. Keys are silently ignored when focus is in an input, textarea, or select.
+- **Auto-advance**: after any triage key, the view automatically navigates forward one unit (reuses `_focusNavigate(1)`), so the user can sweep a large library without touching the mouse.
+- **Branch support**: when centered on a branch unit, the status key applies to the active lane's current scene (`_focusBranchData.lanes[activeLaneIdx][laneCenterIdxs[activeLaneIdx]]`).
+- **Undo behavior**: uses `mutateProjectCoalesced` keyed on `'triage'`. Rapid key presses within 750 ms coalesce into a single undo step; pausing longer than 750 ms between presses starts a new step. This gives clean Ctrl+Z behavior for a sweep without generating hundreds of undo entries. Chosen over per-key `mutateProject` precisely because triage is a flow operation, not a deliberate per-scene edit.
+- **Immediate visual feedback**: `mutateProjectCoalesced` fires `projectChange` synchronously, which triggers `render()` → `_renderFocus()` and updates the status border before navigation begins.
+- **Legend**: `_buildFocusNavBar` now appends a separator and a `<span class="focus-nav-triage-legend">` reading `1 incl · 2 maybe · 3 excl` at the right end of the nav bar. Styled at 10 px in `var(--text-2)` to be discoverable without competing with the nav buttons.
+
 ## 2026-06-01 — Coalesced undo for text-field edits with live stat refresh
 
 - **`App.State.mutateProjectCoalesced(fn, key)`**: new helper that pushes ONE undo snapshot at the start of each typing burst (identified by a stable `key` string), then coalesces all subsequent keystrokes on the same key within 750 ms. Deep clone only happens once per burst, not per keystroke. Emits `'projectChange'` on every call so sidebar coverage percentages update live.
