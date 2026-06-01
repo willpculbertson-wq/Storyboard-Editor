@@ -2454,7 +2454,7 @@ App.Grid = (function() {
           }
         }
         frag.appendChild(_buildNodeCard(el));
-        frag.appendChild(_buildBranchSection(el));
+        frag.appendChild(_buildBranchSection(el, depth));
         if (rejoin) frag.appendChild(_buildNodeCard(rejoin));
       } else if (el.type === 'action' || el.type === 'rejoin') {
         flushScenes();
@@ -2666,7 +2666,8 @@ App.Grid = (function() {
     return card;
   }
 
-  function _buildBranchSection(branchEl) {
+  function _buildBranchSection(branchEl, depth) {
+    if (depth === undefined) depth = 0;
     const section = document.createElement('div');
     section.className = 'seq-branch-section';
     (branchEl.lanes || []).forEach((lane, i) => {
@@ -2684,7 +2685,7 @@ App.Grid = (function() {
         empty.textContent = 'Drop scenes here';
         laneDiv.appendChild(empty);
       } else {
-        _renderSequenceInto(lane.sequence, laneDiv);
+        _renderSequenceInto(lane.sequence, laneDiv, depth);
       }
       section.appendChild(laneDiv);
     });
@@ -2849,11 +2850,30 @@ App.Grid = (function() {
     } else if (type === 'action') {
       node.choices = [];
     }
-    App.State.mutateProject(project => { App.Seq.insertAfter(project.sequence, node, afterId); });
+    App.State.mutateProject(project => {
+      App.Seq.insertAfter(project.sequence, node, afterId);
+      if (type === 'rejoin') {
+        const found = App.Seq.findById(project.sequence, node.id);
+        if (found) {
+          const arr = found.arr;
+          const idx = found.index;
+          const matchedSplitIds = new Set(
+            arr.filter(el => el.type === 'rejoin' && el.id !== node.id && el.branchSplitId)
+               .map(el => el.branchSplitId)
+          );
+          for (let i = idx - 1; i >= 0; i--) {
+            if (arr[i].type === 'branch_split' && !matchedSplitIds.has(arr[i].id)) {
+              node.branchSplitId = arr[i].id;
+              break;
+            }
+          }
+        }
+      }
+    });
   }
 
   function deleteElement(id) {
-    if (!confirm('Delete this element? This cannot be undone.')) return;
+    if (!confirm('Delete this element? You can undo this.')) return;
     App.State.mutateProject(project => { App.Seq.remove(project.sequence, id); });
     App.State.get('selectedCards').delete(id);
     App.Filters.updateBulkBar();

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-06-01 — Fix delete confirm copy, rejoin auto-link, and branch-lane group depth
+
+- **Delete confirm copy**: changed "This cannot be undone." to "You can undo this." since `mutateProject` always pushes an undo snapshot before the delete.
+- **Rejoin auto-link**: `insertNode('rejoin')` now scans backwards through its parent array at insert time and sets `branchSplitId` to the nearest preceding unmatched `branch_split` (one not already claimed by another rejoin in the same array). If none exists, `branchSplitId` stays null. Renderer logic untouched.
+- **Branch-lane group depth**: `_buildBranchSection` now accepts and forwards a `depth` argument to `_renderSequenceInto`, and the call site in `_renderSequenceInto` passes the current `depth` through. Groups nested inside branch lanes now increment depth correctly instead of always drawing at depth-0 styling.
+
 ## 2026-06-01 — Fix focus view wheel scroll swallowing events over text box panel
 
 - **Scrollable panel passthrough**: the `wheel` listener on `#image-grid` now checks whether the event originated inside a `.focus-text-boxes-panel` that has overflow content (`scrollHeight > clientHeight`). If so, it skips `preventDefault()` and scene navigation, letting the panel scroll natively.
