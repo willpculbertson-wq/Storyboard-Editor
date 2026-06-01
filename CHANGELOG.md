@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-06-01 — Fix focus view wheel scroll swallowing events over text box panel
+
+- **Scrollable panel passthrough**: the `wheel` listener on `#image-grid` now checks whether the event originated inside a `.focus-text-boxes-panel` that has overflow content (`scrollHeight > clientHeight`). If so, it skips `preventDefault()` and scene navigation, letting the panel scroll natively.
+- **No behavior change elsewhere**: wheel over the image area or a non-scrollable panel still advances/retreats scenes as before.
+
 ## 2026-05-20 — Add "Jump to img" number input in header toolbar
 
 - **New jump widget**: a compact number input labeled "Img" sits between the Undo/Redo buttons and the view switcher in all views. Entering a number and pressing Enter (or blurring) selects the nth *included* image in unfiltered sequence order and scrolls it into view (or re-centers the focus filmstrip on it).

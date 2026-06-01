@@ -550,7 +550,8 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .seq-group[data-depth="0"] .seq-group-name-input{font-size:15px}
 .seq-group[data-depth="1"] .seq-group-name-input{font-size:13px}
 .seq-group[data-depth="2"] .seq-group-name-input,.seq-group[data-depth="3"] .seq-group-name-input{font-size:12px}
-.seq-group-count{font-size:11px;color:var(--text-2);white-space:nowrap;margin-left:auto}
+.seq-group-chars{flex:1;min-width:0;font-size:11px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 12px;text-align:center}
+.seq-group-count{font-size:11px;color:var(--text-2);white-space:nowrap}
 .seq-group-order-btn{
   background:transparent;color:var(--text-2);padding:1px 5px;font-size:12px;
   border-radius:2px;opacity:.45;flex-shrink:0;line-height:1.2;
@@ -2504,6 +2505,23 @@ App.Grid = (function() {
 
     const sceneCount = _groupSceneCountMap.get(el.id) || 0;
 
+    const groupScenes = App.Seq.flatScenes(el.sequence || []);
+    const charCountMap = new Map();
+    for (const scene of groupScenes) {
+      for (const entry of (scene.characters || [])) {
+        charCountMap.set(entry.characterId, (charCountMap.get(entry.characterId) || 0) + 1);
+      }
+    }
+    const projectChars = App.State.get('project')?.characters || [];
+    const charSummary = [...charCountMap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([cid, cnt]) => {
+        const ch = projectChars.find(c => c.id === cid);
+        return ch ? `${ch.alias || ch.name} (${cnt})` : null;
+      })
+      .filter(Boolean)
+      .join(' - ');
+
     const header = document.createElement('div');
     header.className = 'seq-group-header';
 
@@ -2518,6 +2536,10 @@ App.Grid = (function() {
       e.stopPropagation();
       _startInlineEdit(el.id, name);
     });
+
+    const chars = document.createElement('span');
+    chars.className = 'seq-group-chars';
+    chars.textContent = charSummary;
 
     const count = document.createElement('span');
     count.className = 'seq-group-count';
@@ -2550,6 +2572,7 @@ App.Grid = (function() {
     header.draggable = true;
     header.appendChild(arrow);
     header.appendChild(name);
+    header.appendChild(chars);
     header.appendChild(count);
     header.appendChild(btnTop);
     header.appendChild(btnUp);
@@ -3568,6 +3591,8 @@ App.Grid = (function() {
   // Scroll wheel navigation in focus mode
   document.getElementById('image-grid').addEventListener('wheel', e => {
     if (App.State.get('viewMode') !== 'focus') return;
+    const panel = e.target.closest('.focus-text-boxes-panel');
+    if (panel && panel.scrollHeight > panel.clientHeight) return;
     e.preventDefault();
     _focusNavigate(e.deltaY > 0 ? 1 : -1);
   }, { passive: false });
