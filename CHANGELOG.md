@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-06-01 — Coalesced undo for text-field edits with live stat refresh
+
+- **`App.State.mutateProjectCoalesced(fn, key)`**: new helper that pushes ONE undo snapshot at the start of each typing burst (identified by a stable `key` string), then coalesces all subsequent keystrokes on the same key within 750 ms. Deep clone only happens once per burst, not per keystroke. Emits `'projectChange'` on every call so sidebar coverage percentages update live.
+- **Burst reset on undo/redo**: `restoreProject` now clears the coalesced key/timer, ensuring the first edit after an undo always starts a fresh undo entry.
+- **`_mutateTextBox` (editor panel)**: routed through `mutateProjectCoalesced`. Swatch color clicks get an explicit key (`sceneId:tb:boxId:color`); text field inputs get `sceneId:tb:boxId:field`.
+- **`_mutateFocusTextBox` (focus view)**: same approach — coalescing key passed from both the swatch click handler and the input handler.
+- **`_onFieldInput` text fields** (mood, notes, `video.motionPrompt`, `video.sequenceId`): replaced direct project mutation with `mutateProjectCoalesced` keyed on `sceneId:field:fieldName`.
+- **`_onCharFieldInput`** (character pose/expression): replaced `mutateProject` (one snapshot per keystroke) with `mutateProjectCoalesced` keyed on `sceneId:char:idx:field`.
+- **`_renderFocus` guard**: skips the focus-view rebuild when `document.activeElement` is inside a `.focus-text-boxes-panel`, so the user's cursor and text selection survive the `projectChange`-triggered re-render while typing.
+
 ## 2026-06-01 — Fix delete confirm copy, rejoin auto-link, and branch-lane group depth
 
 - **Delete confirm copy**: changed "This cannot be undone." to "You can undo this." since `mutateProject` always pushes an undo snapshot before the delete.

@@ -1421,8 +1421,37 @@ App.State = (function() {
     App.FS.scheduleSave();
   }
 
+  // Coalesced text-edit mutations: push ONE undo snapshot at the start of each burst
+  // (identified by `key`), then coalesce subsequent edits on the same key within 750 ms.
+  // Emits 'projectChange' on every call so live stats stay current without a deep clone
+  // on every keystroke — the clone only happens once per burst.
+  let _coalescedKey = null;
+  let _coalescedTimer = null;
+
+  function mutateProjectCoalesced(fn, key) {
+    if (!_state.project) return;
+    if (key !== _coalescedKey) {
+      App.Undo.push({
+        project: JSON.parse(JSON.stringify(_state.project)),
+        selectedCards: [..._state.selectedCards],
+      });
+      _coalescedKey = key;
+    }
+    clearTimeout(_coalescedTimer);
+    _coalescedTimer = setTimeout(() => { _coalescedKey = null; _coalescedTimer = null; }, 750);
+    fn(_state.project);
+    _state.project.project.modified = new Date().toISOString();
+    _state.dirty = true;
+    _emit('projectChange', _state.project);
+    App.FS.scheduleSave();
+  }
+
   function restoreProject(snapshot) {
     if (!snapshot) return;
+    // Break any in-flight coalesced burst so the next edit starts a fresh undo entry.
+    clearTimeout(_coalescedTimer);
+    _coalescedKey = null;
+    _coalescedTimer = null;
     _state.project = snapshot;
     _state.dirty = true;
     _state._sceneIndex = App.Seq.buildIndex(_state.project.sequence);
@@ -1441,7 +1470,7 @@ App.State = (function() {
     if (_state.project) _state._sceneIndex = App.Seq.buildIndex(_state.project.sequence);
   }
 
-  return { get, set, mutateProject, restoreProject, subscribe, initIndex };
+  return { get, set, mutateProject, mutateProjectCoalesced, restoreProject, subscribe, initIndex };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -2916,6 +2945,11 @@ App.Grid = (function() {
   }
 
   function _renderFocus(scenes) {
+    // Skip rebuild while the user is typing inside a focus text-box panel; the
+    // inputs already show live state and rebuilding would steal focus/cursor.
+    const active = document.activeElement;
+    if (active && active.closest('.focus-text-boxes-panel')) return;
+
     const project = App.State.get('project');
     if (!project) return;
 
@@ -3470,17 +3504,13 @@ App.Grid = (function() {
     else _enterBranch(target, newIdx);
   }
 
-  function _mutateFocusTextBox(sceneId, boxId, fn) {
-    const project = App.State.get('project');
-    if (!project) return;
-    const scene = App.Seq.findSceneById(project.sequence, sceneId);
-    if (!scene) return;
-    const box = (scene.textBoxes || []).find(b => b.id === boxId);
-    if (!box) return;
-    fn(box);
-    project.project.modified = new Date().toISOString();
-    App.State.set('dirty', true);
-    App.FS.scheduleSave();
+  function _mutateFocusTextBox(sceneId, boxId, fn, coalescingKey) {
+    App.State.mutateProjectCoalesced(project => {
+      const scene = App.Seq.findSceneById(project.sequence, sceneId);
+      if (!scene) return;
+      const box = (scene.textBoxes || []).find(b => b.id === boxId);
+      if (box) fn(box);
+    }, coalescingKey ?? `${sceneId}:tb:${boxId}`);
   }
 
   function _buildFocusTextBoxesPanel(scene) {
@@ -3538,7 +3568,7 @@ App.Grid = (function() {
       const sceneId = panel.dataset.focusSceneId;
       if (!boxId || !sceneId) return;
       const colorName = sw.dataset.color;
-      _mutateFocusTextBox(sceneId, boxId, b => { b.color = colorName; });
+      _mutateFocusTextBox(sceneId, boxId, b => { b.color = colorName; }, `${sceneId}:tb:${boxId}:color`);
       entry.style.borderLeftColor = App.TEXT_BOX_COLOR_HEX.get(colorName) || '#888';
       entry.querySelectorAll('.focus-tb-swatch').forEach(s =>
         s.classList.toggle('selected', s.dataset.color === colorName));
@@ -3551,7 +3581,7 @@ App.Grid = (function() {
       const boxId = entry?.dataset.focusBoxId;
       const sceneId = panel.dataset.focusSceneId;
       if (!boxId || !sceneId) return;
-      _mutateFocusTextBox(sceneId, boxId, b => { b[field] = e.target.value; });
+      _mutateFocusTextBox(sceneId, boxId, b => { b[field] = e.target.value; }, `${sceneId}:tb:${boxId}:${field}`);
     });
 
     return panel;
@@ -3937,10 +3967,10 @@ App.Editor = (function() {
   }
 
   function _onCharFieldInput(e, idx, field) {
-    App.State.mutateProject(project => {
+    App.State.mutateProjectCoalesced(project => {
       const scene = App.Seq.findSceneById(project.sequence, _currentId);
       if (scene?.characters[idx]) scene.characters[idx][field] = e.target.value;
-    });
+    }, `${_currentId}:char:${idx}:${field}`);
   }
 
   // ── Text box helpers ─────────────────────────────────────
@@ -4002,17 +4032,13 @@ App.Editor = (function() {
     return entry;
   }
 
-  function _mutateTextBox(boxId, fn) {
-    const project = App.State.get('project');
-    if (!project) return;
-    const scene = App.Seq.findSceneById(project.sequence, _currentId);
-    if (!scene) return;
-    const box = (scene.textBoxes || []).find(b => b.id === boxId);
-    if (!box) return;
-    fn(box);
-    project.project.modified = new Date().toISOString();
-    App.State.set('dirty', true);
-    App.FS.scheduleSave();
+  function _mutateTextBox(boxId, fn, coalescingKey) {
+    App.State.mutateProjectCoalesced(project => {
+      const scene = App.Seq.findSceneById(project.sequence, _currentId);
+      if (!scene) return;
+      const box = (scene.textBoxes || []).find(b => b.id === boxId);
+      if (box) fn(box);
+    }, coalescingKey ?? `${_currentId}:tb:${boxId}`);
   }
 
   function _addTextBox() {
@@ -4061,7 +4087,7 @@ App.Editor = (function() {
       const entry = swatch.closest('.text-box-entry');
       const boxId = entry?.dataset.boxId;
       if (!boxId) return;
-      _mutateTextBox(boxId, b => { b.color = swatch.dataset.color; });
+      _mutateTextBox(boxId, b => { b.color = swatch.dataset.color; }, `${_currentId}:tb:${boxId}:color`);
       entry.querySelectorAll('.text-box-swatch').forEach(s =>
         s.classList.toggle('selected', s.dataset.color === swatch.dataset.color));
       return;
@@ -4084,20 +4110,18 @@ App.Editor = (function() {
 
   function _onFieldInput(e) {
     if (e.target.dataset.boxField) {
-      _mutateTextBox(e.target.dataset.boxId, b => { b[e.target.dataset.boxField] = e.target.value; });
+      const boxId = e.target.dataset.boxId;
+      const boxField = e.target.dataset.boxField;
+      _mutateTextBox(boxId, b => { b[boxField] = e.target.value; }, `${_currentId}:tb:${boxId}:${boxField}`);
       return;
     }
     const field = e.target.dataset.field;
     const textFields = ['mood', 'notes', 'video.motionPrompt', 'video.sequenceId'];
     if (!field || !textFields.includes(field) || !_currentId) return;
-    const project = App.State.get('project');
-    if (!project) return;
-    const scene = App.Seq.findSceneById(project.sequence, _currentId);
-    if (!scene) return;
-    App.Utils.setNested(scene, field, e.target.value);
-    project.project.modified = new Date().toISOString();
-    App.State.set('dirty', true);
-    App.FS.scheduleSave();
+    App.State.mutateProjectCoalesced(project => {
+      const scene = App.Seq.findSceneById(project.sequence, _currentId);
+      if (scene) App.Utils.setNested(scene, field, e.target.value);
+    }, `${_currentId}:field:${field}`);
   }
 
   function refreshHash(sceneId) {
