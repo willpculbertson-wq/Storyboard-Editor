@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-06-01 — Add hash-based re-linking for moved/renamed assets (PRD §10b)
+
+- **`App.Relink` module**: new IIFE added after `App.Hasher`. `relinkMissingAssets()` re-attaches scenes whose stored `asset.path` no longer resolves to a present file, by matching their stored `asset.hash` (SHA-256) against currently-present files. Updates `scene.asset.path` / `asset.filename` on match.
+- **Cost control**: only runs when at least one re-linkable missing scene exists (path absent from `fileHandleCache` *and* `asset.hash` non-empty). Hashes only *candidate* files — present files whose path is not referenced by any scene (the only paths a moved file could now occupy). Hashing yields to the event loop every 10 files so the UI stays responsive on large folders. The common nothing-moved case does zero extra hashing and returns immediately.
+- **No-guess safety**: a hash claimed by more than one missing scene, or matched by more than one present file, is treated as ambiguous and left missing. Scenes whose hash has no present match also stay missing.
+- **Ordering**: runs in `_enterProject` *before* `reconcileScenes`, so a moved file re-attaches to its existing scene instead of spawning a duplicate empty scene for the new path. `reconcileScenes` then only adds scenes for genuinely new files. Mutations go through `App.State.mutateProject` so the re-link is saved (and undoable post-load).
+- **Cache consistency**: `fileHandleCache` is rebuilt by `enumerateImages` on scan and already holds the new paths, so no re-keying is needed — stale old-path entries simply vanish on rebuild.
+- **"Re-link" header button**: added before "Prefill…"; re-scans the folder (`enumerateImages`), runs the re-link pass, reconciles, re-renders, and re-hashes in the background. Disabled while running. Useful for files moved while the app is open.
+- **`App.Toast` module + `#toast` element**: new transient bottom-center status message (3.5 s auto-dismiss). Reports how many assets were re-linked on project open and on manual re-link (and "No missing assets to re-link" when none).
+- **CSS**: `#toast` / `#toast.show` rules added near the `.file-missing` badge style.
+
 ## 2026-06-01 — Add "Prefill from Filenames" dialog for heuristic metadata pre-fill
 
 - **`App.Prefill` module**: new self-contained IIFE module added after `App.BatchEdit`. Tokenizes each scene's `asset.path` (splits on `/`, `_`, `-`, `.`, and camelCase boundaries; lowercases; drops pure-numeric tokens and tokens shorter than 2 chars) and maps tokens to metadata fields via an editable `TOKEN_RULES` table.

@@ -155,6 +155,13 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
   content:'⚠ missing';position:absolute;bottom:0;left:0;right:0;
   background:rgba(239,68,68,.8);color:#fff;font-size:10px;text-align:center;padding:2px;
 }
+#toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  background:var(--bg-1);color:var(--text-0);border:1px solid var(--accent);
+  border-radius:6px;padding:10px 18px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.4);
+  opacity:0;pointer-events:none;transition:opacity .25s;z-index:9999;
+}
+#toast.show{opacity:1}
 .card-check{display:none;position:absolute;top:4px;left:4px;width:16px;height:16px;accent-color:var(--accent)}
 .select-mode .card-check{display:block}
 .card-label{
@@ -706,6 +713,7 @@ button:disabled:hover{background:var(--bg-3)}
       <div class="stat-chip" title="Maybe scenes"><span class="dot dot-yellow"></span><span id="stat-maybe">0</span> maybe</div>
       <div class="stat-chip" title="Untagged scenes"><span class="dot dot-grey"></span><span id="stat-untagged">0</span> untagged</div>
       <button class="grid-only" id="btn-add-group">+ Group</button>
+      <button id="btn-relink" title="Re-scan the folder and re-attach moved/renamed images to their scenes by content hash">Re-link</button>
       <button id="btn-prefill" title="Heuristically pre-fill empty metadata from filenames">Prefill…</button>
       <button id="btn-batch">Batch Edit</button>
       <button id="btn-export">Export</button>
@@ -5197,6 +5205,115 @@ App.Hasher = (function() {
 })();
 
 // ═══════════════════════════════════════════════════════
+// TOAST — transient bottom-center status message
+// ═══════════════════════════════════════════════════════
+App.Toast = (function() {
+  let _timer = null;
+  function show(msg, ms = 3500) {
+    const el = document.getElementById('toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(_timer);
+    _timer = setTimeout(() => el.classList.remove('show'), ms);
+  }
+  return { show };
+})();
+
+// ═══════════════════════════════════════════════════════
+// ASSET RE-LINKING (PRD §10b)
+// When a scene's stored asset.path no longer resolves to a present file,
+// try to re-attach it to a currently-present file with the same content
+// hash (i.e. the image was moved or renamed on disk).
+//
+// Cost control: hashing every present file is expensive, so we hash only
+// CANDIDATE files — present files whose path is not referenced by any scene
+// (the only paths a moved file could now occupy) — and only when at least
+// one re-linkable missing scene exists. Hashing yields to the event loop
+// periodically so the UI stays responsive on large folders.
+// ═══════════════════════════════════════════════════════
+App.Relink = (function() {
+  async function _sha256(handle) {
+    const file = await handle.getFile();
+    const buf  = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // Returns the number of scenes re-linked. Mutates the project (undoable +
+  // saved) only when at least one match is found. Run BEFORE reconcileScenes so
+  // a moved file re-attaches to its existing scene instead of spawning a
+  // duplicate empty scene for the new path.
+  async function relinkMissingAssets() {
+    const project = App.State.get('project');
+    if (!project) return 0;
+    const fc = App.State.get('fileHandleCache');
+
+    const scenes = App.Seq.flatScenes(project.sequence);
+    const scenePaths = new Set(scenes.map(s => s.asset.path));
+
+    // Missing scenes eligible for re-link: path no longer present + has a stored hash.
+    const missing = scenes.filter(s => !fc.has(s.asset.path) && s.asset.hash);
+    if (!missing.length) return 0;
+
+    // Wanted hashes. A hash claimed by more than one missing scene is ambiguous
+    // (can't tell which moved where) → exclude it so those scenes stay missing.
+    const claims = new Map();
+    for (const s of missing) claims.set(s.asset.hash, (claims.get(s.asset.hash) || 0) + 1);
+    const wanted = new Set([...claims].filter(([, n]) => n === 1).map(([h]) => h));
+    if (!wanted.size) return 0;
+
+    // Candidate present files: those not already referenced by any scene path.
+    const candidates = [];
+    for (const [path, handle] of fc) {
+      if (!scenePaths.has(path)) candidates.push({ path, handle });
+    }
+    if (!candidates.length) return 0;
+
+    // Hash candidates incrementally; record matches for wanted hashes. A wanted
+    // hash matched by more than one present file is ambiguous → don't guess.
+    const found = new Map();      // hash -> { path, handle }
+    const ambiguous = new Set();  // hashes matched by >1 candidate
+    let processed = 0;
+    for (const c of candidates) {
+      let hash = null;
+      try { hash = await _sha256(c.handle); } catch { /* skip unreadable */ }
+      if (hash && wanted.has(hash)) {
+        if (found.has(hash)) ambiguous.add(hash);
+        else found.set(hash, c);
+      }
+      if (++processed % 10 === 0) await new Promise(r => setTimeout(r, 0));
+    }
+
+    // Resolve unambiguous matches: missing scene id -> new path.
+    const relinks = new Map();
+    for (const s of missing) {
+      const h = s.asset.hash;
+      if (!wanted.has(h) || ambiguous.has(h)) continue;
+      const match = found.get(h);
+      if (match) relinks.set(s.id, match.path);
+    }
+    if (!relinks.size) return 0;
+
+    App.State.mutateProject(proj => {
+      for (const scene of App.Seq.flatScenes(proj.sequence)) {
+        const newPath = relinks.get(scene.id);
+        if (!newPath) continue;
+        scene.asset.path = newPath;
+        scene.asset.filename = newPath.split('/').pop();
+      }
+    });
+    // fileHandleCache already holds the new paths (built by enumerateImages),
+    // so no re-keying is needed — the stale old-path entries simply went away
+    // when the cache was rebuilt on scan.
+
+    return relinks.size;
+  }
+
+  return { relinkMissingAssets };
+})();
+
+// ═══════════════════════════════════════════════════════
 // VARIABLES MANAGER
 // ═══════════════════════════════════════════════════════
 App.VarMgr = (function() {
@@ -5416,6 +5533,11 @@ App.StartScreen = (function() {
 
   async function _enterProject(dirHandle) {
     const imageFiles = await App.FS.enumerateImages(dirHandle);
+    // Re-attach moved/renamed files to their existing scenes by content hash
+    // BEFORE reconcile, so a moved file doesn't spawn a duplicate empty scene.
+    let relinkedCount = 0;
+    try { relinkedCount = await App.Relink.relinkMissingAssets(); }
+    catch (e) { console.warn('Re-link pass failed:', e); }
     reconcileScenes(imageFiles);
     App.State.initIndex();
     await App.FS.rememberProject(dirHandle, App.State.get('project').project.title);
@@ -5432,6 +5554,10 @@ App.StartScreen = (function() {
     App.CharMgr.updateFilterDropdown();
     App.Grid.render();
     hide();
+
+    if (relinkedCount > 0) {
+      App.Toast.show(`Re-linked ${relinkedCount} moved asset${relinkedCount === 1 ? '' : 's'}`);
+    }
 
     App.Hasher.hashAllInBackground();
   }
@@ -5478,6 +5604,26 @@ document.getElementById('btn-vars').addEventListener('click', () => App.VarMgr.o
 document.getElementById('btn-export').addEventListener('click', () => document.getElementById('export-dialog').showModal());
 document.getElementById('btn-batch').addEventListener('click', () => App.BatchEdit.open());
 document.getElementById('btn-prefill').addEventListener('click', () => App.Prefill.open());
+document.getElementById('btn-relink').addEventListener('click', async () => {
+  const dirHandle = App.State.get('dirHandle');
+  if (!dirHandle) return;
+  const btn = document.getElementById('btn-relink');
+  btn.disabled = true;
+  try {
+    const imageFiles = await App.FS.enumerateImages(dirHandle); // rebuilds fileHandleCache
+    const n = await App.Relink.relinkMissingAssets();
+    reconcileScenes(imageFiles);
+    App.State.initIndex();
+    App.Grid.render();
+    App.Toast.show(n > 0 ? `Re-linked ${n} moved asset${n === 1 ? '' : 's'}` : 'No missing assets to re-link');
+    if (n > 0) App.Hasher.hashAllInBackground();
+  } catch (e) {
+    console.warn('Manual re-link failed:', e);
+    App.Toast.show('Re-link failed — see console');
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 (function() {
   const input = document.getElementById('jump-input');
@@ -5636,5 +5782,6 @@ window.addEventListener('beforeunload', () => {
 </script>
 <div id="list-col-picker"></div>
 <div id="ctx-menu"></div>
+<div id="toast"></div>
 </body>
 </html>
