@@ -358,6 +358,15 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .batch-field-row select{flex:1}
 #batch-preview-text{font-size:12px;color:var(--text-1)}
 
+/* ── PREFILL FROM FILENAMES DIALOG ─────────────────────── */
+#prefill-dialog{width:700px}
+.prefill-field-row{display:flex;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
+.prefill-field-row:last-child{border-bottom:none}
+.prefill-field-name{flex:0 0 130px;color:var(--text-1);font-weight:600}
+.prefill-field-count{flex:0 0 70px;color:var(--text-0)}
+.prefill-field-detail{flex:1;color:var(--text-2)}
+.prefill-no-match{font-size:12px;color:var(--text-2);padding:4px 0}
+
 /* ── CHARACTER IMPORT DIALOG ───────────────────────────── */
 #char-import-dialog{width:580px}
 #char-import-schema{margin-top:10px}
@@ -697,6 +706,7 @@ button:disabled:hover{background:var(--bg-3)}
       <div class="stat-chip" title="Maybe scenes"><span class="dot dot-yellow"></span><span id="stat-maybe">0</span> maybe</div>
       <div class="stat-chip" title="Untagged scenes"><span class="dot dot-grey"></span><span id="stat-untagged">0</span> untagged</div>
       <button class="grid-only" id="btn-add-group">+ Group</button>
+      <button id="btn-prefill" title="Heuristically pre-fill empty metadata from filenames">Prefill…</button>
       <button id="btn-batch">Batch Edit</button>
       <button id="btn-export">Export</button>
       <button id="btn-vars">Variables</button>
@@ -1036,6 +1046,37 @@ button:disabled:hover{background:var(--bg-3)}
     <div style="display:flex;gap:8px">
       <button onclick="document.getElementById('batch-edit-dialog').close()">Cancel</button>
       <button class="primary" id="btn-batch-apply">Apply</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ═══════════════════════════════════════════════
+     PREFILL FROM FILENAMES DIALOG
+════════════════════════════════════════════════════ -->
+<dialog id="prefill-dialog">
+  <div class="dialog-header">
+    <h2>Prefill from Filenames</h2>
+    <button onclick="document.getElementById('prefill-dialog').close()">✕</button>
+  </div>
+  <div class="batch-body">
+    <div class="batch-scope-pane">
+      <div class="batch-section-title">Scope</div>
+      <label class="batch-all-row">
+        <input type="checkbox" id="prefill-scope-all"> All scenes
+      </label>
+      <div id="prefill-folder-list"></div>
+    </div>
+    <div class="batch-fields-pane">
+      <div class="batch-section-title">Preview</div>
+      <p class="batch-hint">Only empty fields are filled — existing values are never overwritten.</p>
+      <div id="prefill-preview-results"></div>
+    </div>
+  </div>
+  <div class="dialog-footer">
+    <span id="prefill-preview-text">Select folders to preview</span>
+    <div style="display:flex;gap:8px">
+      <button onclick="document.getElementById('prefill-dialog').close()">Cancel</button>
+      <button class="primary" id="btn-prefill-apply" disabled>Apply</button>
     </div>
   </div>
 </dialog>
@@ -4710,6 +4751,278 @@ App.BatchEdit = (function() {
 })();
 
 // ═══════════════════════════════════════════════════════
+// PREFILL FROM FILENAMES
+// Heuristically sets empty scene metadata based on tokens
+// found in each scene's asset.path. Never overwrites existing
+// data — only fills fields that are blank/unset.
+// ═══════════════════════════════════════════════════════
+App.Prefill = (function() {
+  const _dialog = document.getElementById('prefill-dialog');
+
+  // ── Token → field value rule table (edit this to tune heuristics) ──
+  const TOKEN_RULES = [
+    {
+      field: 'shot.type',
+      label: 'Shot Type',
+      map: {
+        wide: 'wide',    ws: 'wide',
+        medium: 'medium', mid: 'medium', ms: 'medium',
+        closeup: 'closeup', close: 'closeup', cu: 'closeup', clos: 'closeup',
+        pov: 'pov',
+        detail: 'detail', extreme: 'detail', ecu: 'detail',
+      },
+    },
+    {
+      field: 'shot.transition',
+      label: 'Transition',
+      map: { cut: 'cut', fade: 'fade', dissolve: 'dissolve', wipe: 'wipe' },
+    },
+    {
+      field: 'contentRating',
+      label: 'Content Rating',
+      map: {
+        explicit: 'explicit', nsfw: 'explicit',
+        suggestive: 'suggestive',
+        tasteful: 'tasteful',
+        neutral: 'neutral', safe: 'neutral', sfw: 'neutral',
+      },
+    },
+  ];
+
+  const FIELD_LABELS = {
+    'shot.type': 'Shot Type',
+    'shot.transition': 'Transition',
+    'contentRating': 'Content Rating',
+    'characters': 'Characters',
+  };
+
+  // Split path on separators and camelCase boundaries; lowercase; drop pure-numeric tokens.
+  function _tokenize(path) {
+    return path
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .toLowerCase()
+      .split(/[/\-_.\s]+/)
+      .filter(t => t.length >= 2 && !/^\d+$/.test(t));
+  }
+
+  function _getNested(obj, dotPath) {
+    return dotPath.split('.').reduce((cur, k) => (cur == null ? undefined : cur[k]), obj);
+  }
+
+  // Return { field: value, ... } for every empty field that has a token match.
+  // Does NOT mutate anything.
+  function _computeChanges(scene, project) {
+    const tokens = _tokenize(scene.asset.path);
+    const changes = {};
+
+    for (const rule of TOKEN_RULES) {
+      const current = _getNested(scene, rule.field);
+      if (current !== '' && current != null) continue; // already set — skip
+      for (const token of tokens) {
+        const mapped = rule.map[token];
+        if (mapped !== undefined) { changes[rule.field] = mapped; break; }
+      }
+    }
+
+    // Character matching: only when scene.characters is empty.
+    // Require token length >= 3 to avoid short-token false positives.
+    if (!scene.characters || scene.characters.length === 0) {
+      const matchedIds = [];
+      for (const char of (project.characters || [])) {
+        const charTokens = _tokenize(char.name + ' ' + (char.alias || ''));
+        for (const token of tokens) {
+          if (token.length >= 3 && charTokens.includes(token)) {
+            if (!matchedIds.includes(char.id)) matchedIds.push(char.id);
+            break;
+          }
+        }
+      }
+      if (matchedIds.length > 0) changes['characters'] = matchedIds;
+    }
+
+    return changes;
+  }
+
+  function _getSceneDir(scene) { return App.Utils.dirOf(scene.asset.path); }
+
+  function _buildDirMap(project) {
+    const map = new Map();
+    App.Seq.flatScenes(project.sequence).forEach(s => {
+      const d = _getSceneDir(s);
+      map.set(d, (map.get(d) || 0) + 1);
+    });
+    return [...map.entries()].sort(([a], [b]) => {
+      if (a === '' && b !== '') return -1;
+      if (a !== '' && b === '') return 1;
+      return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    });
+  }
+
+  function _getSelectedDirs() {
+    return new Set(
+      [...document.querySelectorAll('#prefill-folder-list .batch-dir-check:checked')]
+        .map(cb => cb.dataset.dir)
+    );
+  }
+
+  function _buildPreview() {
+    const selectedDirs = _getSelectedDirs();
+    const project = App.State.get('project');
+    const applyBtn = document.getElementById('btn-prefill-apply');
+    const previewText = document.getElementById('prefill-preview-text');
+    const resultsEl = document.getElementById('prefill-preview-results');
+
+    if (!project || selectedDirs.size === 0) {
+      resultsEl.innerHTML = '';
+      previewText.textContent = 'Select folders to preview';
+      applyBtn.disabled = true;
+      return;
+    }
+
+    const scenes = App.Seq.flatScenes(project.sequence)
+      .filter(s => selectedDirs.has(_getSceneDir(s)));
+
+    // Accumulate per-field stats across all scenes in scope.
+    const fieldStats = new Map(); // field -> { total, values: Map<displayVal, count> }
+    let totalAffected = 0;
+
+    for (const scene of scenes) {
+      const changes = _computeChanges(scene, project);
+      if (Object.keys(changes).length > 0) totalAffected++;
+      for (const [field, value] of Object.entries(changes)) {
+        if (!fieldStats.has(field)) fieldStats.set(field, { total: 0, values: new Map() });
+        const fs = fieldStats.get(field);
+        fs.total++;
+        if (field === 'characters') {
+          value.forEach(id => {
+            const c = (project.characters || []).find(ch => ch.id === id);
+            const lbl = c ? (c.alias || c.name) : id;
+            fs.values.set(lbl, (fs.values.get(lbl) || 0) + 1);
+          });
+        } else {
+          fs.values.set(value, (fs.values.get(value) || 0) + 1);
+        }
+      }
+    }
+
+    resultsEl.innerHTML = '';
+
+    if (fieldStats.size === 0) {
+      resultsEl.innerHTML = '<p class="prefill-no-match">No empty fields matched tokens in the selected scope — nothing would change.</p>';
+      previewText.textContent = `${scenes.length} scene${scenes.length !== 1 ? 's' : ''} in scope — nothing to prefill`;
+      applyBtn.disabled = true;
+      return;
+    }
+
+    fieldStats.forEach((fs, field) => {
+      const row = document.createElement('div');
+      row.className = 'prefill-field-row';
+      const detail = [...fs.values.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([v, n]) => `${v} ×${n}`)
+        .join(', ');
+      row.innerHTML = `
+        <span class="prefill-field-name">${App.Utils.esc(FIELD_LABELS[field] || field)}</span>
+        <span class="prefill-field-count">${fs.total} scene${fs.total !== 1 ? 's' : ''}</span>
+        <span class="prefill-field-detail">${App.Utils.esc(detail)}</span>`;
+      resultsEl.appendChild(row);
+    });
+
+    previewText.textContent =
+      `${totalAffected} of ${scenes.length} scene${scenes.length !== 1 ? 's' : ''} would be updated`;
+    applyBtn.disabled = false;
+  }
+
+  function open() {
+    const project = App.State.get('project');
+    if (!project) return;
+
+    // Rebuild folder list
+    const folderList = document.getElementById('prefill-folder-list');
+    folderList.innerHTML = '';
+    _buildDirMap(project).forEach(([dir, count]) => {
+      const label = document.createElement('label');
+      label.className = 'batch-dir-row';
+      const display = dir === '' ? '(root folder)' : dir;
+      label.innerHTML = `
+        <input type="checkbox" class="batch-dir-check" data-dir="${App.Utils.esc(dir)}">
+        <span class="batch-dir-name" title="${App.Utils.esc(display)}">${App.Utils.esc(display)}</span>
+        <span class="batch-dir-count">${count}</span>`;
+      folderList.appendChild(label);
+    });
+
+    // Reset preview state
+    document.getElementById('prefill-preview-results').innerHTML = '';
+    document.getElementById('prefill-preview-text').textContent = 'Select folders to preview';
+    document.getElementById('btn-prefill-apply').disabled = true;
+    document.getElementById('prefill-scope-all').checked = false;
+
+    _dialog.showModal();
+  }
+
+  function _apply() {
+    const selectedDirs = _getSelectedDirs();
+    if (selectedDirs.size === 0) { alert('Select at least one folder.'); return; }
+
+    const project = App.State.get('project');
+    const scenes = App.Seq.flatScenes(project.sequence)
+      .filter(s => selectedDirs.has(_getSceneDir(s)));
+
+    // Compute the full change plan before mutating anything.
+    const changePlan = scenes
+      .map(s => ({ id: s.id, changes: _computeChanges(s, project) }))
+      .filter(p => Object.keys(p.changes).length > 0);
+
+    if (changePlan.length === 0) { alert('Nothing to prefill in the selected scope.'); return; }
+
+    const fieldTypes = new Set(changePlan.flatMap(p => Object.keys(p.changes)));
+    if (!confirm(
+      `Prefill ${changePlan.length} scene${changePlan.length !== 1 ? 's' : ''} ` +
+      `across ${fieldTypes.size} field type${fieldTypes.size !== 1 ? 's' : ''}?\n\n` +
+      `Existing values will not be overwritten. Ctrl+Z reverts the whole batch.`
+    )) return;
+
+    // Single undo snapshot — mutateProject pushes it before the mutation runs.
+    App.State.mutateProject(project => {
+      const idMap = new Map(App.Seq.flatScenes(project.sequence).map(s => [s.id, s]));
+      for (const { id, changes } of changePlan) {
+        const scene = idMap.get(id);
+        if (!scene) continue;
+        for (const [field, value] of Object.entries(changes)) {
+          if (field === 'characters') {
+            value.forEach(charId => {
+              if (!scene.characters.some(e => e.characterId === charId)) {
+                scene.characters.push({ characterId: charId, pose: '', expression: '' });
+              }
+            });
+          } else {
+            App.Utils.setNested(scene, field, value);
+          }
+        }
+      }
+    });
+
+    _dialog.close();
+  }
+
+  // One-time event wiring (not inside open() to avoid duplicate listeners).
+  document.getElementById('prefill-scope-all').addEventListener('change', function() {
+    document.querySelectorAll('#prefill-folder-list .batch-dir-check')
+      .forEach(cb => { cb.checked = this.checked; });
+    _buildPreview();
+  });
+  document.getElementById('prefill-folder-list').addEventListener('change', e => {
+    if (!e.target.classList.contains('batch-dir-check')) return;
+    const all = [...document.querySelectorAll('#prefill-folder-list .batch-dir-check')];
+    document.getElementById('prefill-scope-all').checked = all.length > 0 && all.every(c => c.checked);
+    _buildPreview();
+  });
+  document.getElementById('btn-prefill-apply').addEventListener('click', _apply);
+
+  return { open };
+})();
+
+// ═══════════════════════════════════════════════════════
 // STATISTICS
 // ═══════════════════════════════════════════════════════
 App.Stats = (function() {
@@ -5164,6 +5477,7 @@ document.getElementById('btn-chars').addEventListener('click', () => App.CharMgr
 document.getElementById('btn-vars').addEventListener('click', () => App.VarMgr.open());
 document.getElementById('btn-export').addEventListener('click', () => document.getElementById('export-dialog').showModal());
 document.getElementById('btn-batch').addEventListener('click', () => App.BatchEdit.open());
+document.getElementById('btn-prefill').addEventListener('click', () => App.Prefill.open());
 
 (function() {
   const input = document.getElementById('jump-input');

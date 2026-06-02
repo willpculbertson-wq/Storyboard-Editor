@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-06-01 — Add "Prefill from Filenames" dialog for heuristic metadata pre-fill
+
+- **`App.Prefill` module**: new self-contained IIFE module added after `App.BatchEdit`. Tokenizes each scene's `asset.path` (splits on `/`, `_`, `-`, `.`, and camelCase boundaries; lowercases; drops pure-numeric tokens and tokens shorter than 2 chars) and maps tokens to metadata fields via an editable `TOKEN_RULES` table.
+- **Token → field mapping table** (`TOKEN_RULES`): covers `shot.type` (`wide/ws`, `medium/mid/ms`, `closeup/cu/close/clos`, `pov`, `detail/extreme/ecu`), `shot.transition` (`cut`, `fade`, `dissolve`, `wipe`), and `contentRating` (`explicit/nsfw`, `suggestive`, `tasteful`, `neutral/safe/sfw`). The constant lives at the top of the module and is clearly marked as the edit point.
+- **Character matching**: separately checks whether any scene path token (≥3 chars) appears in the tokenized name+alias of any project character. Matches add a `{characterId, pose:'', expression:''}` entry only when `scene.characters` is currently empty.
+- **"Only empty" guarantee**: `_computeChanges` checks the current field value before producing any suggestion; fields that are already set are skipped entirely. The apply step also skips characters already present in `scene.characters`.
+- **Preview pane**: right-hand pane of the dialog shows per-field rows with scene count and value breakdown (e.g. `Shot Type  12 scenes  wide ×8, medium ×4`) before any change is made. Footer shows `N of M scenes would be updated`. Apply button stays disabled until at least one match is found.
+- **Scope pane**: left-hand pane reuses `batch-dir-row` / `batch-all-row` / `batch-scope-pane` CSS and the same folder-map pattern from `App.BatchEdit`. One-time `addEventListener` wiring (not per-`open()`) avoids duplicate listener accumulation.
+- **Single undo snapshot**: apply calls `App.State.mutateProject` once, which pushes a full deep-clone snapshot before mutating. Ctrl+Z reverts the entire batch atomically.
+- **"Prefill…" header button**: added before "Batch Edit" in `header-btns`; wired in the header wiring section via `App.Prefill.open()`.
+- **CSS**: nine new rules under `/* PREFILL FROM FILENAMES DIALOG */` for `.prefill-field-row`, `.prefill-field-name`, `.prefill-field-count`, `.prefill-field-detail`, `.prefill-no-match`, and `#prefill-dialog`.
+
 ## 2026-06-01 — Add "Next untagged" jump control with live count and `N` hotkey
 
 - **"Next ⊘" button**: added to the header toolbar immediately after the Jump-to-img widget. Clicking it (or pressing `N` when focus is not in an input/textarea/select) selects the next scene in flat sequence order whose status is missing or `'untagged'`, starting after the currently selected scene and wrapping around to the beginning.
