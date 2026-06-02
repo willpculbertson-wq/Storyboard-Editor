@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-06-01 — Add "Next untagged" jump control with live count and `N` hotkey
+
+- **"Next ⊘" button**: added to the header toolbar immediately after the Jump-to-img widget. Clicking it (or pressing `N` when focus is not in an input/textarea/select) selects the next scene in flat sequence order whose status is missing or `'untagged'`, starting after the currently selected scene and wrapping around to the beginning.
+- **Wrap-around search**: iterates through all scenes in `App.Seq.flatScenes(project.sequence)` order. If the current selection is mid-list it picks up from the next slot; if nothing is selected it starts from index 0.
+- **View-aware scrolling**: in Focus view calls `App.Grid.render()` to re-center (identical to the Jump-to-img behavior); in Grid/List calls `scrollIntoView({ behavior: 'smooth', block: 'center' })` on the scene card.
+- **"All tagged" feedback**: when every scene has a non-untagged status the button briefly flashes "All tagged ✓" and is disabled for 1.8 s, then reverts — no navigation occurs.
+- **Live "N left" count**: a small `<span id="next-untagged-count">` next to the button shows `${n} left` (hidden when zero), updated on every `projectChange` event.
+- **`N` hotkey**: a dedicated `keydown` listener inside the IIFE guards against modifier keys and active input elements, then calls `jumpToNextUntagged()`.
+
 ## 2026-06-01 — Add keyboard triage mode for fast status tagging in Focus view
 
 - **Triage hotkeys**: in Focus view, keys `1` / `2` / `3` set the center scene's status to `included` / `maybe` / `excluded`; `0` or `` ` `` resets it to `untagged`. Keys are silently ignored when focus is in an input, textarea, or select.

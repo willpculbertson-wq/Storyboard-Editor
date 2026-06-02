@@ -75,6 +75,8 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 #jump-input{width:52px;font-size:12px;text-align:center;padding:3px 4px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-2);color:var(--text-0)}
 #jump-input:focus{border-color:var(--accent);outline:none}
 #jump-total{font-size:11px;color:var(--text-2);white-space:nowrap}
+#btn-next-untagged{font-size:11px;padding:3px 7px;margin-left:4px;white-space:nowrap}
+#next-untagged-count{font-size:11px;color:var(--text-2);white-space:nowrap;margin-left:2px}
 #save-indicator.saving{color:var(--yellow);opacity:1}
 #save-indicator.saved{color:var(--green);opacity:1}
 .header-spacer{flex:1}
@@ -678,6 +680,8 @@ button:disabled:hover{background:var(--bg-3)}
     <span id="jump-label">Img</span>
     <input id="jump-input" type="number" min="1" step="1" title="Jump to included image number" placeholder="#">
     <span id="jump-total"></span>
+    <button id="btn-next-untagged" title="Jump to next untagged scene (N)">Next ⊘</button>
+    <span id="next-untagged-count"></span>
     <div class="view-toggle" id="view-toggle">
       <button class="view-btn" data-view="list"  title="List view">≡</button>
       <button class="view-btn" data-view="grid"  title="Grid view">⊞</button>
@@ -5192,6 +5196,62 @@ document.getElementById('btn-batch').addEventListener('click', () => App.BatchEd
   input.addEventListener('blur', () => {
     if (input.value !== '') jumpToImage();
   });
+})();
+
+(function() {
+  const btn = document.getElementById('btn-next-untagged');
+  const countEl = document.getElementById('next-untagged-count');
+  const isUntagged = s => !s.status || s.status === 'untagged';
+
+  function updateCount() {
+    const project = App.State.get('project');
+    const n = project ? App.Seq.flatScenes(project.sequence).filter(isUntagged).length : 0;
+    countEl.textContent = n > 0 ? `${n} left` : '';
+  }
+
+  function jumpToNextUntagged() {
+    const project = App.State.get('project');
+    if (!project) return;
+    const scenes = App.Seq.flatScenes(project.sequence);
+    if (!scenes.length) return;
+    const selectedId = App.State.get('selectedSceneId');
+    const curIdx = selectedId ? scenes.findIndex(s => s.id === selectedId) : -1;
+    let target = null;
+    for (let i = 1; i <= scenes.length; i++) {
+      const s = scenes[(curIdx + i) % scenes.length];
+      if (isUntagged(s)) { target = s; break; }
+    }
+    if (!target) {
+      const orig = btn.textContent;
+      btn.textContent = 'All tagged ✓';
+      btn.disabled = true;
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1800);
+      return;
+    }
+    App.Editor.open(target.id);
+    const mode = App.State.get('viewMode');
+    if (mode === 'focus') {
+      App.Grid.render();
+    } else {
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-scene-id="${target.id}"]`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
+  }
+
+  btn.addEventListener('click', jumpToNextUntagged);
+
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'n' || e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (!App.State.get('project')) return;
+    e.preventDefault();
+    jumpToNextUntagged();
+  });
+
+  App.State.subscribe('projectChange', updateCount);
 })();
 
 document.getElementById('view-toggle').addEventListener('click', e => {
