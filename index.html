@@ -89,7 +89,15 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .stat-chip:hover{border-color:var(--accent);color:var(--text-0)}
 .stat-chip .dot{width:7px;height:7px;border-radius:50%;display:inline-block}
 .dot-green{background:var(--green)}.dot-yellow{background:var(--yellow)}
-.dot-red{background:var(--red)}.dot-grey{background:var(--grey)}
+.dot-red{background:var(--red)}.dot-grey{background:var(--grey)}.dot-orange{background:#f97316}
+.dup-badge{
+  position:absolute;top:4px;right:4px;
+  background:rgba(249,115,22,.85);color:#fff;
+  font-size:9px;font-weight:700;border-radius:3px;padding:1px 4px;
+  pointer-events:none;letter-spacing:.02em;line-height:1.4;
+}
+.dup-badge-inline{margin-left:5px;color:#f97316;font-size:11px;vertical-align:middle;cursor:default}
+.sidebar-stat-val.orange{color:#f97316}
 
 /* ── SIDEBAR ───────────────────────────────────────────── */
 #sidebar{
@@ -712,7 +720,9 @@ button:disabled:hover{background:var(--bg-3)}
       <div class="stat-chip" title="Included scenes"><span class="dot dot-green"></span><span id="stat-included">0</span> included</div>
       <div class="stat-chip" title="Maybe scenes"><span class="dot dot-yellow"></span><span id="stat-maybe">0</span> maybe</div>
       <div class="stat-chip" title="Untagged scenes"><span class="dot dot-grey"></span><span id="stat-untagged">0</span> untagged</div>
+      <div class="stat-chip" id="stat-chip-dupes" title="Scenes with a duplicate image (same content hash)" style="display:none"><span class="dot dot-orange"></span><span id="stat-dupes">0</span> dup</div>
       <button class="grid-only" id="btn-add-group">+ Group</button>
+      <button id="btn-find-dupes" title="Find exact-duplicate images by content hash and link via alternateOf">Link Dupes</button>
       <button id="btn-relink" title="Re-scan the folder and re-attach moved/renamed images to their scenes by content hash">Re-link</button>
       <button id="btn-prefill" title="Heuristically pre-fill empty metadata from filenames">Prefill…</button>
       <button id="btn-batch">Batch Edit</button>
@@ -790,6 +800,10 @@ button:disabled:hover{background:var(--bg-3)}
         <div class="sidebar-stat-row">
           <span class="sidebar-stat-label"><span class="dot dot-grey"></span>Untagged</span>
           <span class="sidebar-stat-val grey" id="stats-untagged">0</span>
+        </div>
+        <div class="sidebar-stat-row" id="sidebar-dupes-row" style="display:none">
+          <span class="sidebar-stat-label"><span class="dot dot-orange"></span>Duplicates</span>
+          <span class="sidebar-stat-val orange" id="stats-dupes">0</span>
         </div>
         <hr>
         <div class="sidebar-stat-row">
@@ -2146,6 +2160,7 @@ App.Grid = (function() {
   let _lastClickedId = null;
   let _seqNumMap = new Map(); // sceneId → { num, letter }
   let _groupSceneCountMap = new Map(); // groupId → number of flat scenes
+  let _dupSceneIds = new Set(); // scene IDs whose hash is shared with ≥1 other scene
 
   function _buildSequenceNumbers(sequence) {
     const map = new Map();
@@ -2361,11 +2376,16 @@ App.Grid = (function() {
     const mode = App.State.get('viewMode');
 
     if (!project) {
+      _dupSceneIds = new Set();
       _inner.className = '';
       _inner.innerHTML = '<div id="empty-state">Open a project to begin.</div>';
       _resetGridContainer();
       return;
     }
+
+    // Build duplicate-hash set so _buildCard / _buildListRow can badge dup scenes.
+    // App.DupeFinder is defined later in the file but is available by runtime.
+    _dupSceneIds = App.DupeFinder.dupSceneIdSet(project);
 
     if (mode === 'grid') {
       const allScenes = App.Seq.flatScenes(project.sequence);
@@ -2574,6 +2594,16 @@ App.Grid = (function() {
       numSpan.textContent = seqInfo.letter ? `${seqInfo.num}${seqInfo.letter}` : `${seqInfo.num}`;
       badge.appendChild(numSpan);
       card.appendChild(badge);
+    }
+
+    if (_dupSceneIds.has(scene.id)) {
+      const dupBadge = document.createElement('div');
+      dupBadge.className = 'dup-badge';
+      dupBadge.title = scene.alternateOf
+        ? 'Duplicate image — alternateOf linked'
+        : 'Duplicate image (same content as another scene)';
+      dupBadge.textContent = '⧉';
+      card.appendChild(dupBadge);
     }
 
     return card;
@@ -3389,6 +3419,16 @@ App.Grid = (function() {
     pathCell.textContent = pathLabel;
     pathCell.title = scene.asset.path;
     if (depth > 0) pathCell.style.paddingLeft = (depth * 20) + 'px';
+
+    if (_dupSceneIds.has(scene.id)) {
+      const dupSpan = document.createElement('span');
+      dupSpan.className = 'dup-badge-inline';
+      dupSpan.textContent = '⧉';
+      dupSpan.title = scene.alternateOf
+        ? 'Duplicate image — alternateOf linked'
+        : 'Duplicate image (same content hash as another scene)';
+      pathCell.appendChild(dupSpan);
+    }
 
     row.append(thumbWrap, dot, pathCell);
 
@@ -5056,6 +5096,12 @@ App.Stats = (function() {
     const chars = App.State.get('project')?.characters?.length ?? 0;
     const filteredCount = App.State.get('filteredCount') ?? scenes.length;
 
+    // Duplicate count: scenes whose hash is shared with ≥1 other scene.
+    // App.DupeFinder is defined later in source but available at call time.
+    const dupCount = App.State.get('project')
+      ? App.DupeFinder.dupSceneIdSet(App.State.get('project')).size
+      : 0;
+
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     set('stat-included', included.length);
     set('stat-maybe', maybe.length);
@@ -5069,6 +5115,12 @@ App.Stats = (function() {
     set('stats-char-pct', cPct + '%');
     set('stats-characters', chars);
     set('sidebar-filtered-count', `${filteredCount} in view`);
+    set('stat-dupes', dupCount);
+    set('stats-dupes', dupCount);
+    const chipEl = document.getElementById('stat-chip-dupes');
+    if (chipEl) chipEl.style.display = dupCount > 0 ? '' : 'none';
+    const sidebarRow = document.getElementById('sidebar-dupes-row');
+    if (sidebarRow) sidebarRow.style.display = dupCount > 0 ? '' : 'none';
   }
 
   return { init, update };
@@ -5311,6 +5363,111 @@ App.Relink = (function() {
   }
 
   return { relinkMissingAssets };
+})();
+
+// ═══════════════════════════════════════════════════════
+// DUPLICATE FINDER
+// Uses the SHA-256 hashes stored in scene.asset.hash to
+// detect exact-duplicate images and optionally auto-link
+// them via scene.alternateOf. Scenes without a hash (still
+// computing) are silently skipped.
+// ═══════════════════════════════════════════════════════
+App.DupeFinder = (function() {
+
+  // Build a hash → [sceneId, ...] index in flatScenes order.
+  // Scenes with an empty hash are excluded.
+  function buildHashIndex(scenes) {
+    const map = new Map();
+    for (const s of scenes) {
+      if (!s.asset.hash) continue;
+      const arr = map.get(s.asset.hash);
+      if (arr) arr.push(s.id);
+      else map.set(s.asset.hash, [s.id]);
+    }
+    return map;
+  }
+
+  // Return a Set of scene IDs that belong to any hash cluster of ≥ 2 scenes.
+  // Both the primary (first in sequence) and all later duplicates are included.
+  function dupSceneIdSet(project) {
+    const scenes = App.Seq.flatScenes(project.sequence);
+    const hashIdx = buildHashIndex(scenes);
+    const dupIds = new Set();
+    hashIdx.forEach(ids => {
+      if (ids.length >= 2) ids.forEach(id => dupIds.add(id));
+    });
+    return dupIds;
+  }
+
+  // Build the link plan: Map<sceneId → primaryId> for scenes that would receive
+  // a new alternateOf assignment (i.e. are secondary duplicates with no existing link).
+  function _buildLinkPlan(project) {
+    const scenes = App.Seq.flatScenes(project.sequence);
+    const hashIdx = buildHashIndex(scenes);
+    const byId = new Map(scenes.map(s => [s.id, s]));
+    const plan = new Map();
+    hashIdx.forEach(ids => {
+      if (ids.length < 2) return;
+      const primaryId = ids[0];
+      for (let i = 1; i < ids.length; i++) {
+        const scene = byId.get(ids[i]);
+        if (scene && !scene.alternateOf) plan.set(ids[i], primaryId);
+      }
+    });
+    return plan;
+  }
+
+  // Explicit "Find & link duplicates" action — previews count, confirms, then
+  // applies via a single mutateProject call (fully undoable with Ctrl+Z).
+  function linkDuplicates() {
+    const project = App.State.get('project');
+    if (!project) return;
+
+    const plan = _buildLinkPlan(project);
+
+    if (!plan.size) {
+      App.Toast.show(
+        'No unlinked duplicates found — hashes may still be computing, ' +
+        'or all duplicates are already linked.'
+      );
+      return;
+    }
+
+    const clusterCount = new Set(plan.values()).size;
+    const byId = new Map(App.Seq.flatScenes(project.sequence).map(s => [s.id, s]));
+
+    // Build a short summary of the primary paths for the confirm dialog.
+    const primaryIds = [...new Set(plan.values())];
+    const summaryLines = primaryIds.slice(0, 3).map(pid => {
+      const p = byId.get(pid);
+      return '• ' + (p ? p.asset.path : pid);
+    });
+    if (primaryIds.length > 3) summaryLines.push(`  …and ${primaryIds.length - 3} more`);
+
+    if (!confirm(
+      `Found ${plan.size} duplicate scene${plan.size !== 1 ? 's' : ''} ` +
+      `across ${clusterCount} cluster${clusterCount !== 1 ? 's' : ''}.\n\n` +
+      `Primaries (first in sequence order):\n${summaryLines.join('\n')}\n\n` +
+      `Each duplicate's alternateOf will be set to its primary. ` +
+      `Status and all other fields are untouched.\n\nCtrl+Z reverts the whole batch.`
+    )) return;
+
+    App.State.mutateProject(proj => {
+      const idMap = new Map(App.Seq.flatScenes(proj.sequence).map(s => [s.id, s]));
+      plan.forEach((primaryId, sceneId) => {
+        const scene = idMap.get(sceneId);
+        if (scene) scene.alternateOf = primaryId;
+      });
+    });
+
+    App.Grid.render();
+    App.Toast.show(
+      `Linked ${plan.size} duplicate${plan.size !== 1 ? 's' : ''} ` +
+      `across ${clusterCount} cluster${clusterCount !== 1 ? 's' : ''}.`
+    );
+  }
+
+  return { buildHashIndex, dupSceneIdSet, linkDuplicates };
 })();
 
 // ═══════════════════════════════════════════════════════
@@ -5604,6 +5761,7 @@ document.getElementById('btn-vars').addEventListener('click', () => App.VarMgr.o
 document.getElementById('btn-export').addEventListener('click', () => document.getElementById('export-dialog').showModal());
 document.getElementById('btn-batch').addEventListener('click', () => App.BatchEdit.open());
 document.getElementById('btn-prefill').addEventListener('click', () => App.Prefill.open());
+document.getElementById('btn-find-dupes').addEventListener('click', () => App.DupeFinder.linkDuplicates());
 document.getElementById('btn-relink').addEventListener('click', async () => {
   const dirHandle = App.State.get('dirHandle');
   if (!dirHandle) return;

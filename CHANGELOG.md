@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-06-01 — Detect and link exact-duplicate images via content hash
+
+- **`App.DupeFinder` module**: new IIFE inserted after `App.Relink`. `buildHashIndex(scenes)` returns a `Map<hash, [sceneId,...]>` from a flat scene array, skipping scenes whose `asset.hash` is empty (hashes still computing). `dupSceneIdSet(project)` returns a `Set` of every scene ID that belongs to any hash cluster of ≥2 — used for badge rendering. `linkDuplicates()` is the user-facing action.
+- **`linkDuplicates()` action**: wired to the new `#btn-find-dupes` header button ("Link Dupes"). Designates the first scene in flatScenes order as the "primary" of each cluster. Builds a plan (`Map<sceneId → primaryId>`) covering only secondary duplicates whose `alternateOf` is currently empty — so existing manual links are never clobbered, and re-running is idempotent. Shows a confirm dialog with scene/cluster counts and up to 3 sample primary paths. Applies via a single `App.State.mutateProject` call (one undo snapshot → Ctrl+Z reverts the entire batch). No status or other fields are changed.
+- **Card dup badge**: `_buildCard` (grid view) now checks `_dupSceneIds.has(scene.id)` and appends a `.dup-badge` element (`⧉`, orange, `top:4px;right:4px`) when true. Tooltip says "alternateOf linked" vs "duplicate detected" depending on whether linking has been applied yet.
+- **List row dup indicator**: `_buildListRow` (list view) appends a `.dup-badge-inline` `⧉` span inside the path cell for duplicate scenes.
+- **`_dupSceneIds` module var in `App.Grid`**: recomputed once at the start of every `render()` call (after project null-check), covering all view modes. Cleared to an empty Set when no project is loaded.
+- **Stats sidebar**: new "Duplicates" row (`#sidebar-dupes-row`) with orange dot and `.sidebar-stat-val.orange` count (`#stats-dupes`). Shown only when dup count > 0.
+- **Header stat chip**: new `#stat-chip-dupes` chip (orange dot, `#stat-dupes`) next to the existing included/maybe/untagged chips. Hidden when count is 0.
+- **`App.Stats.update()` extended**: calls `App.DupeFinder.dupSceneIdSet(project)` on every `projectChange` event to keep both stat elements and their visibility in sync.
+- **CSS**: `.dup-badge`, `.dup-badge-inline`, `.dot-orange` (`#f97316`), `.sidebar-stat-val.orange` added.
+
 ## 2026-06-01 — Add hash-based re-linking for moved/renamed assets (PRD §10b)
 
 - **`App.Relink` module**: new IIFE added after `App.Hasher`. `relinkMissingAssets()` re-attaches scenes whose stored `asset.path` no longer resolves to a present file, by matching their stored `asset.hash` (SHA-256) against currently-present files. Updates `scene.asset.path` / `asset.filename` on match.
