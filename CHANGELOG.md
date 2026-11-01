@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-01 — Add character immediately on dropdown selection
+
+- **Instant add**: choosing a character in the Scene Editor's "add character" dropdown now adds it on `change`; the redundant Add button (`#ed-chars-add-btn`) is removed.
+- **No duplicates in the list**: new `_populateCharAddSelect(scene)` rebuilds the dropdown with only characters not already in the scene. It runs at the end of `_populateCharacters`, so it refreshes on scene open, add, remove, and any other repopulate.
+- The dropdown is blurred after an add so Up/Down arrows return to list navigation rather than changing the dropdown value.
+
 ## 2026-10-31 — List-view navigation: remember position, stronger highlight, temporary folder expand
 
 - **Position survives filter changes**: `_listAnchor` records the ordered scene ids and index of the selected row (updated from `refreshCard`). If the selected scene drops out of the filtered list (e.g. its character is removed), Up/Down resume from its old spot — Down goes to the next surviving scene after it, Up to the previous one — instead of jumping to the top.

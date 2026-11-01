@@ -957,7 +957,6 @@ button:disabled:hover{background:var(--bg-3)}
             <div id="ed-chars-list"></div>
             <div id="ed-chars-add-row">
               <select id="ed-chars-add-select"><option value="">— add character —</option></select>
-              <button id="ed-chars-add-btn">Add</button>
             </div>
           </div>
         </div>
@@ -3897,7 +3896,7 @@ App.Editor = (function() {
       else _expand(); // explicit expand from user action
     });
 
-    document.getElementById('ed-chars-add-btn').addEventListener('click', _addCharacter);
+    document.getElementById('ed-chars-add-select').addEventListener('change', _addCharacter);
     document.getElementById('ed-tag-input').addEventListener('keydown', _onTagKeydown);
 
     document.addEventListener('keydown', e => {
@@ -4080,14 +4079,6 @@ App.Editor = (function() {
       altEl.appendChild(opt);
     }
 
-    // Add-character select
-    const addSel = document.getElementById('ed-chars-add-select');
-    addSel.innerHTML = '<option value="">— add character —</option>';
-    for (const c of project.characters) {
-      const opt = document.createElement('option');
-      opt.value = c.id; opt.textContent = c.alias || c.name; addSel.appendChild(opt);
-    }
-
     _populateCharacters(scene);
     _populateTags(scene);
     _buildTagDatalist();
@@ -4111,6 +4102,20 @@ App.Editor = (function() {
       row.querySelector('[data-remove-char]').addEventListener('click', () => _removeCharacter(idx));
       list.appendChild(row);
     });
+    _populateCharAddSelect(scene);
+  }
+
+  // Add-character dropdown: only characters not already in the scene
+  function _populateCharAddSelect(scene) {
+    const project = App.State.get('project');
+    const addSel = document.getElementById('ed-chars-add-select');
+    const present = new Set((scene.characters || []).map(c => c.characterId));
+    addSel.innerHTML = '<option value="">— add character —</option>';
+    for (const c of project.characters) {
+      if (present.has(c.id)) continue;
+      const opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.alias || c.name; addSel.appendChild(opt);
+    }
   }
 
   function _populateTags(scene) {
@@ -4170,7 +4175,8 @@ App.Editor = (function() {
       }
     });
     sel.value = '';
-    _populateCharacters(App.State.get('_sceneIndex').get(_currentId));
+    _populateCharacters(App.State.get('_sceneIndex').get(_currentId)); // also rebuilds the dropdown
+    sel.blur(); // so Up/Down go back to list navigation instead of changing the dropdown
   }
 
   function _removeCharacter(idx) {
