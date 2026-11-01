@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-31 — List-view navigation: remember position, stronger highlight, temporary folder expand
+
+- **Position survives filter changes**: `_listAnchor` records the ordered scene ids and index of the selected row (updated from `refreshCard`). If the selected scene drops out of the filtered list (e.g. its character is removed), Up/Down resume from its old spot — Down goes to the next surviving scene after it, Up to the previous one — instead of jumping to the top.
+- **Scroll preserved**: `_renderList` now restores `scrollTop` when re-rendering while already in list view, so edits no longer snap the list back to the top.
+- **Stronger selected-row highlight**: blue tinted background, thick accent bar plus 1px accent outline, bold white filename (replaces the faint grey).
+- **Temporary folder expand**: arrowing into a collapsed folder expands it (tracked in `_autoExpanded`, not persisted as expanded); arrowing out of it re-collapses it. Clicking a folder, Expand all, or Collapse all takes manual control. Saved collapsed state is unchanged by navigation.
+
 ## 2026-10-31 — Add Up/Down arrow navigation and selection highlight in list view
 
 - **Arrow keys in list view**: ArrowDown / ArrowUp select the next / previous scene in on-screen order and open it in the Scene Editor. Respects the active filter (e.g. a single-Character filter). Ignored while typing in an input/textarea/select, with a modal dialog open, or with Ctrl/Alt/Shift/Meta held. Stops at the first/last row; with nothing selected, Down picks the first and Up the last.

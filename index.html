@@ -496,7 +496,8 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .list-row:nth-child(odd){background:var(--bg-1)}
 .list-row:nth-child(odd):hover{background:var(--bg-2)}
 .list-row{scroll-margin-top:34px}
-.list-row.selected,.list-row.selected:nth-child(odd){background:var(--bg-3);box-shadow:inset 3px 0 0 var(--accent)}
+.list-row.selected,.list-row.selected:nth-child(odd),.list-row.selected:hover{background:rgba(59,130,246,.30);box-shadow:inset 5px 0 0 var(--accent),inset 0 0 0 1px var(--accent)}
+.list-row.selected .list-cell.primary{font-weight:700;color:#fff}
 .list-header-cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:grab;padding:1px 0}
 .list-header-cell.pinned,.list-header-cell.picker-btn{cursor:default}
 .list-header-cell.dragging{opacity:.4}
@@ -2196,6 +2197,11 @@ App.Grid = (function() {
   }
   const _collapsedFolders = new Set(
     JSON.parse(localStorage.getItem('storyboard_collapsedFolders') || '[]'));
+  // Folders that keyboard navigation temporarily expanded; re-collapsed when navigation leaves them.
+  const _autoExpanded = new Set();
+  // Last list-view selection: the ordered scene ids and index at that moment. Lets arrow keys
+  // resume from the same spot after the selected scene drops out of the filtered list.
+  let _listAnchor = null;
 
   // ── List column definitions ───────────────────────────
   const _LIST_COL_DEFS = [
@@ -3250,6 +3256,8 @@ App.Grid = (function() {
     _g.style.padding = '0';
     const _nav = document.getElementById('focus-nav-bar');
     if (_nav) _nav.remove();
+    const wasList = _inner.className === 'list-view';
+    const _prevScroll = wasList ? _g.scrollTop : 0; // read before innerHTML is cleared
     _inner.className = 'list-view';
     _inner.innerHTML = '';
 
@@ -3313,6 +3321,7 @@ App.Grid = (function() {
     _renderFolderNode(_buildFolderTree(scenes), frag, visibleCols, 0);
 
     _inner.appendChild(frag);
+    if (_prevScroll) _g.scrollTop = _prevScroll;
     _inner.querySelectorAll('.list-row').forEach(row => App.LazyLoader.observe(row));
   }
 
@@ -3351,16 +3360,19 @@ App.Grid = (function() {
   }
 
   function _persistCollapsed() {
-    localStorage.setItem('storyboard_collapsedFolders', JSON.stringify([..._collapsedFolders]));
+    // Temporarily auto-expanded folders are still "collapsed" as far as saved state goes
+    localStorage.setItem('storyboard_collapsedFolders', JSON.stringify([..._collapsedFolders, ..._autoExpanded]));
   }
 
   function _collapseAllFolders() {
+    _autoExpanded.clear();
     _collectAllFolderPaths(_buildFolderTree(_lastFilteredScenes)).forEach(p => _collapsedFolders.add(p));
     _persistCollapsed();
     _renderList(_lastFilteredScenes);
   }
 
   function _expandAllFolders() {
+    _autoExpanded.clear();
     _collapsedFolders.clear();
     _persistCollapsed();
     _renderList(_lastFilteredScenes);
@@ -3394,6 +3406,7 @@ App.Grid = (function() {
 
     row.append(icon, name, cnt, arrow);
     row.addEventListener('click', () => {
+      _autoExpanded.delete(node.path); // user took manual control of this folder
       if (_collapsedFolders.has(node.path)) _collapsedFolders.delete(node.path);
       else _collapsedFolders.add(node.path);
       _persistCollapsed();
@@ -3535,6 +3548,7 @@ App.Grid = (function() {
   function refreshCard(sceneId) {
     const mode = App.State.get('viewMode');
     if (mode === 'focus') { render(); return; }
+    if (mode === 'list' && sceneId === App.State.get('selectedSceneId')) _updateListAnchor(sceneId);
     const el = _inner?.querySelector(`[data-scene-id="${sceneId}"]`);
     if (!el) return;
     const scene = App.State.get('_sceneIndex').get(sceneId);
@@ -3774,28 +3788,55 @@ App.Grid = (function() {
     return acc;
   }
 
+  // Remember where the selected scene sits in the list so navigation can resume from
+  // that spot if the scene later drops out of the filter (e.g. its character is removed).
+  function _updateListAnchor(sceneId) {
+    const ordered = _listOrderedScenes(_buildFolderTree(_lastFilteredScenes));
+    const idx = ordered.findIndex(s => s.id === sceneId);
+    if (idx >= 0) _listAnchor = { ids: ordered.map(s => s.id), idx };
+  }
+
   function _listNavigate(dir) {
     const ordered = _listOrderedScenes(_buildFolderTree(_lastFilteredScenes));
     if (!ordered.length) return;
     const curIdx = ordered.findIndex(s => s.id === App.State.get('selectedSceneId'));
-    const nextIdx = curIdx < 0
-      ? (dir > 0 ? 0 : ordered.length - 1)
-      : Math.max(0, Math.min(ordered.length - 1, curIdx + dir));
-    if (nextIdx === curIdx) return;
-    const target = ordered[nextIdx];
+    let target;
+    if (curIdx >= 0) {
+      target = ordered[Math.max(0, Math.min(ordered.length - 1, curIdx + dir))];
+      if (target === ordered[curIdx]) return;
+    } else if (_listAnchor) {
+      // Selected scene is no longer listed: step to the nearest surviving neighbour
+      // of its old position in the requested direction.
+      const alive = new Map(ordered.map(s => [s.id, s]));
+      const { ids, idx } = _listAnchor;
+      if (dir > 0) {
+        for (let i = idx + 1; i < ids.length && !target; i++) target = alive.get(ids[i]);
+        if (!target) target = ordered[ordered.length - 1];
+      } else {
+        for (let i = idx - 1; i >= 0 && !target; i--) target = alive.get(ids[i]);
+        if (!target) target = ordered[0];
+      }
+    } else {
+      target = dir > 0 ? ordered[0] : ordered[ordered.length - 1];
+    }
 
-    // Expand any collapsed ancestor folders of the target
+    // Expand collapsed ancestor folders of the target (not persisted), and re-collapse
+    // any folders we auto-expanded earlier that the target is no longer inside.
     const parts = target.asset.path.replace(/\\/g, '/').split('/');
     parts.pop();
-    let expanded = false;
-    for (let i = 1; i <= parts.length; i++) {
-      const p = parts.slice(0, i).join('/');
-      if (_collapsedFolders.delete(p)) expanded = true;
+    const ancestors = new Set(parts.map((_, i) => parts.slice(0, i + 1).join('/')));
+    let changed = false;
+    for (const p of [..._autoExpanded]) {
+      if (!ancestors.has(p)) {
+        _autoExpanded.delete(p);
+        _collapsedFolders.add(p);
+        changed = true;
+      }
     }
-    if (expanded) {
-      _persistCollapsed();
-      _renderList(_lastFilteredScenes);
+    for (const p of ancestors) {
+      if (_collapsedFolders.delete(p)) { _autoExpanded.add(p); changed = true; }
     }
+    if (changed) _renderList(_lastFilteredScenes);
 
     App.Editor.open(target.id);
     _inner.querySelector(`[data-scene-id="${target.id}"]`)?.scrollIntoView({ block: 'nearest' });
