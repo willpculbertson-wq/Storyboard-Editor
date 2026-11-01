@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-31 — Add Up/Down arrow navigation and selection highlight in list view
+
+- **Arrow keys in list view**: ArrowDown / ArrowUp select the next / previous scene in on-screen order and open it in the Scene Editor. Respects the active filter (e.g. a single-Character filter). Ignored while typing in an input/textarea/select, with a modal dialog open, or with Ctrl/Alt/Shift/Meta held. Stops at the first/last row; with nothing selected, Down picks the first and Up the last.
+- **Collapsed folders are traversed**: navigation walks every filtered scene, including those inside collapsed folders; stepping into one auto-expands its ancestor folders (persisted) and re-renders the list.
+- **Selected-row highlight**: list rows now get a `.selected` class (accent bar + brighter background), set at build time and updated in `refreshCard`. Rows scroll into view with `block: 'nearest'` (`scroll-margin-top` clears the sticky header).
+- Helpers `_listOrderedScenes` / `_listNavigate` added in `App.Grid` beside the focus-mode key handler.
+
 ## 2026-06-01 — Detect and link exact-duplicate images via content hash
 
 - **`App.DupeFinder` module**: new IIFE inserted after `App.Relink`. `buildHashIndex(scenes)` returns a `Map<hash, [sceneId,...]>` from a flat scene array, skipping scenes whose `asset.hash` is empty (hashes still computing). `dupSceneIdSet(project)` returns a `Set` of every scene ID that belongs to any hash cluster of ≥2 — used for badge rendering. `linkDuplicates()` is the user-facing action.
