@@ -4,6 +4,9 @@ storyboard.json
 # Local project directories (user image data, not part of the tool source)
 Projects/
 
+# Claude Code local settings (personal overrides)
+.claude/settings.local.json
+
 # OS artifacts
 Thumbs.db
 .DS_Store

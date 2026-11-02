@@ -1323,6 +1323,19 @@ function migrateProject(p) {
   if (!Array.isArray(p.sequence))  p.sequence  = [];
   if (!Array.isArray(p.variables)) p.variables = [];
   if (!p.rootName) p.rootName = 'All Images';
+  // Strip any accidental reference / batch sheet scenes that have no user tags or notes
+  p.sequence = p.sequence.filter(item => {
+    if (item && item.type === 'scene') {
+      const path = item.asset && item.asset.path ? item.asset.path.toLowerCase() : '';
+      if (path.startsWith('references/') || path.startsWith('references\\') || path.includes('/batches/') || path.includes('\\batches\\')) {
+        const hasNotes = item.notes && item.notes.trim();
+        const hasTags = item.tags && item.tags.length > 0;
+        const hasChars = item.characters && item.characters.length > 0;
+        if (!hasNotes && !hasTags && !hasChars) return false;
+      }
+    }
+    return true;
+  });
   // Ensure every element has a type field
   App.Seq.walk(p.sequence, el => { if (!el.type) el.type = 'scene'; });
   // Migrate narrative string → textBoxes array
@@ -1555,7 +1568,10 @@ App.FS = (function() {
     return handle;
   }
 
-  // Recursively enumerate all image files under dirHandle.
+  // Recursively enumerate image files under dirHandle.
+  // If dirHandle contains an 'Images' or 'images' subdirectory, only that subdirectory is scanned
+  // (prefixed with 'Images') to avoid ingesting unrelated files, scripts, or references at the project root.
+  // In all cases, directories matching references, batches, sheets, or hidden directories (.git, .claude, etc.) are skipped.
   // Returns array of { name, path, handle } sorted:
   //   root-level files first, then subdirectories in natural/numeric order,
   //   files within each directory in natural/numeric order.
@@ -1564,9 +1580,23 @@ App.FS = (function() {
     const fc = App.State.get('fileHandleCache');
     fc.clear();
 
+    const IGNORED_DIRS = new Set([
+      'references', 'reference', 'batches', 'batch', 'sheets', 'working',
+      'node_modules', '.git', '.claude', '.vscode'
+    ]);
+
+    function shouldSkipDir(name) {
+      if (name.startsWith('.')) return true;
+      const lower = name.toLowerCase();
+      if (IGNORED_DIRS.has(lower)) return true;
+      if (lower.includes('reference') || lower.includes('batch sheet')) return true;
+      return false;
+    }
+
     async function walkDir(handle, prefix) {
       for await (const [name, entry] of handle.entries()) {
         if (entry.kind === 'directory') {
+          if (shouldSkipDir(name)) continue;
           const sub = prefix ? `${prefix}/${name}` : name;
           await walkDir(entry, sub);
         } else if (entry.kind === 'file') {
@@ -1580,7 +1610,25 @@ App.FS = (function() {
       }
     }
 
-    await walkDir(dirHandle, '');
+    let imagesDirHandle = null;
+    let imagesDirName = null;
+    try {
+      for await (const [name, entry] of dirHandle.entries()) {
+        if (entry.kind === 'directory' && name.toLowerCase() === 'images') {
+          imagesDirHandle = entry;
+          imagesDirName = name;
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not inspect dirHandle entries for Images subfolder:', e);
+    }
+
+    if (imagesDirHandle) {
+      await walkDir(imagesDirHandle, imagesDirName);
+    } else {
+      await walkDir(dirHandle, '');
+    }
 
     // Sort: root files (no '/') first, then by directory natural order, then by filename
     files.sort((a, b) => {

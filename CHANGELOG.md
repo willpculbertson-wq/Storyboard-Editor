@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-02 — Scope asset scanning to Images subfolder and exclude reference directories
+
+- **Scope scanning to `Images/`**: if the opened project directory contains an `Images` (or `images`) subdirectory, `enumerateImages` now walks only that folder (prefixed with `Images`) rather than crawling the entire project root. This prevents non-scene folders (references, docs, scripts) from being ingested as scene cards.
+- **Ignore reference and hidden folders**: `enumerateImages` explicitly skips directories named `references`, `batches`, `sheets`, `working`, hidden folders (`.git`, `.claude`, etc.), or directories containing 'reference' or 'batch sheet'.
+- **Purge accidental reference scenes on migration**: `migrateProject` strips legacy untagged placeholder scenes referencing `references/` or `batches/` that lack user tags or notes, restoring editor performance and keeping `storyboard.json` lightweight.
+
 ## 2026-11-01 — Add character immediately on dropdown selection
 
 - **Instant add**: choosing a character in the Scene Editor's "add character" dropdown now adds it on `change`; the redundant Add button (`#ed-chars-add-btn`) is removed.
