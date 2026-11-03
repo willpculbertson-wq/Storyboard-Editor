@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-02 — Block saves when storyboard.json changed outside the window
+
+- **Stale-write guard**: `saveNow` compares `storyboard.json`'s last-modified time with the one this window last read or wrote. If another program changed the file, saving is blocked and a dialog offers a reload, so an old window can no longer overwrite newer work
+- **Earlier warning**: the same check runs when the window regains focus; while blocked, the save indicator shows "Not saved: file changed on disk, reload"
+- Added after an old window most likely overwrote Gemini's content ratings and part of its tag fixes on 2026-11-02
+
 ## 2026-11-02 — Launch as a standalone Edge app window with its own icon
 
 - **Standalone window**: `scripts/install_shortcut.ps1` creates Start Menu and Desktop shortcuts that open `index.html` with Edge's `--app` mode (no tabs or address bar). No server; it uses the normal Edge profile and `file://` address, so saved data carries over
