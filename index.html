@@ -263,6 +263,9 @@ dialog::backdrop{background:rgba(0,0,0,.7)}
 .char-entry .char-name{font-size:12px;min-width:80px;font-weight:500}
 .char-entry input{flex:1}
 .char-entry button{flex:0 0 auto;padding:3px 6px;font-size:12px}
+.ed-ai{font-size:12px;color:var(--text-1);line-height:1.5}
+.ed-ai .ai-warn{color:var(--yellow)}
+.ed-ai ul{margin:2px 0 0 16px;padding:0}
 #ed-chars-add-row{display:flex;gap:6px;margin-top:4px}
 #ed-chars-add-row select{flex:1}
 .tags-container{
@@ -778,6 +781,10 @@ button:disabled:hover{background:var(--bg-3)}
         <input type="checkbox" id="filter-tagged-only" data-filter-key="taggedOnly">
         <label for="filter-tagged-only" style="margin:0;font-size:12px">Tagged only</label>
       </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="filter-needs-review" data-filter-key="needsReview">
+        <label for="filter-needs-review" style="margin:0;font-size:12px" title="Low AI confidence, possible character-tag errors, or sequence inconsistencies">Needs review (AI)</label>
+      </div>
     </div>
     <div class="sidebar-section" id="sidebar-project-section">
       <div class="sidebar-section-toggle" id="sidebar-project-toggle">
@@ -912,7 +919,55 @@ button:disabled:hover{background:var(--bg-3)}
           </div>
           <div class="field-group">
             <label>Mood</label>
-            <input type="text" id="ed-mood" data-field="mood" placeholder="e.g. tense, romantic…">
+            <input type="text" id="ed-mood" data-field="mood" list="mood-datalist" placeholder="e.g. tense, romantic…">
+            <datalist id="mood-datalist"></datalist>
+          </div>
+          <div class="field-group">
+            <label>Camera Angle</label>
+            <select id="ed-shot-angle" data-field="shot.angle">
+              <option value="">— unset —</option>
+              <option value="eye_level">Eye level</option>
+              <option value="low">Low</option>
+              <option value="high">High</option>
+              <option value="overhead">Overhead</option>
+              <option value="dutch">Dutch</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label>Location</label>
+            <input type="text" id="ed-location" data-field="setting.location" list="location-datalist" placeholder="e.g. bedroom">
+            <datalist id="location-datalist"></datalist>
+          </div>
+          <div class="field-group">
+            <label>Time of Day</label>
+            <select id="ed-time-of-day" data-field="setting.timeOfDay">
+              <option value="">— unset —</option>
+              <option value="day">Day</option>
+              <option value="night">Night</option>
+              <option value="dusk_dawn">Dusk / dawn</option>
+              <option value="indoor_unclear">Indoor, unclear</option>
+            </select>
+          </div>
+
+          <div class="field-group span3">
+            <label>Description</label>
+            <textarea id="ed-description" data-field="description" rows="2" placeholder="What the frame shows…"></textarea>
+          </div>
+          <div class="field-group span2">
+            <label>Props (comma-separated)</label>
+            <input type="text" id="ed-props" data-field="props" data-list-field="1" placeholder="e.g. wine glass, leash">
+          </div>
+          <div class="field-group">
+            <label>Scene Group</label>
+            <input type="text" id="ed-scene-group" data-field="sceneGroup.label" placeholder="Continuous moment label">
+          </div>
+          <div class="field-group span3">
+            <label>Quality Flags (comma-separated)</label>
+            <input type="text" id="ed-quality-flags" data-field="qualityFlags" data-list-field="1" placeholder="e.g. anatomy_error, stray_text">
+          </div>
+          <div class="field-group span3" id="ed-ai-group">
+            <label>AI Review</label>
+            <div id="ed-ai" class="ed-ai"></div>
           </div>
 
           <div class="field-group span3">
@@ -1160,9 +1215,14 @@ function buildEmptyScene(file) {
     contentRating: '',
     perspective: '',
     characters: [],
-    shot: { type: '', transition: '' },
+    shot: { type: '', transition: '', angle: '' },
     textBoxes: [{ id: crypto.randomUUID(), header: '', color: 'white', text: '' }],
     mood: '',
+    description: '',
+    setting: { location: '', timeOfDay: '' },
+    props: [],
+    qualityFlags: [],
+    sceneGroup: null,
     notes: '',
     video: { sequenceId: '', indexInSequence: 0, motionPrompt: '' },
     audio: null,
@@ -1477,7 +1537,7 @@ App.State = (function() {
     dirHandle: null,
     jsonFileHandle: null,
     selectedSceneId: null,
-    filter: { statuses: new Set(), contentRatings: new Set(), characterIds: new Set(), showExcluded: false, taggedOnly: false },
+    filter: { statuses: new Set(), contentRatings: new Set(), characterIds: new Set(), showExcluded: false, taggedOnly: false, needsReview: false },
     dirty: false,
     thumbnailCache: new Map(),  // keyed by asset.path
     fileHandleCache: new Map(), // keyed by asset.path
@@ -2302,11 +2362,25 @@ App.Grid = (function() {
     { id:'tags',      label:'Tags',       width:'130px', defaultOn:true  },
     { id:'narrative', label:'Narrative',  width:'2fr',   defaultOn:true  },
     { id:'chars',     label:'Characters', width:'120px', defaultOn:false },
+    { id:'desc',      label:'Description', width:'2fr',  defaultOn:true  },
+    { id:'loc',       label:'Location',   width:'100px', defaultOn:true  },
+    { id:'group',     label:'Scene Group', width:'140px', defaultOn:false },
+    { id:'conf',      label:'AI Conf.',   width:'70px',  defaultOn:false },
   ];
 
   function _getListColState() {
     const saved = localStorage.getItem('storyboard_listCols');
-    if (saved) { try { return JSON.parse(saved); } catch(e) {} }
+    if (saved) {
+      try {
+        // Columns added since the state was saved go at the end, using their default visibility
+        const s = JSON.parse(saved);
+        _LIST_COL_DEFS.filter(c => !s.order.includes(c.id)).forEach(c => {
+          s.order.push(c.id);
+          if (c.defaultOn) s.visible.push(c.id);
+        });
+        return s;
+      } catch(e) {}
+    }
     return {
       visible: _LIST_COL_DEFS.filter(c => c.defaultOn).map(c => c.id),
       order:   _LIST_COL_DEFS.map(c => c.id),
@@ -2452,6 +2526,11 @@ App.Grid = (function() {
     if (filter.contentRatings.size > 0 && !filter.contentRatings.has(scene.contentRating || '')) return false;
     if (filter.characterIds.size > 0 && !(scene.characters || []).some(c => filter.characterIds.has(c.characterId))) return false;
     if (filter.taggedOnly && (!scene.tags || scene.tags.length === 0)) return false;
+    if (filter.needsReview) {
+      const ai = scene.ai, t = ai?.tagConflicts;
+      const flagged = ai && (ai.confidence === 'low' || t?.taggedButNotVisible?.length || t?.visibleButNotTagged?.length || ai.sequenceFlags?.length);
+      if (!flagged) return false;
+    }
     return true;
   }
 
@@ -3576,7 +3655,11 @@ App.Grid = (function() {
         const val = col.id === 'rating' ? scene.contentRating
                   : col.id === 'shot'   ? scene.shot?.type
                   : col.id === 'trans'  ? scene.shot?.transition
-                  : col.id === 'mood'   ? scene.mood : null;
+                  : col.id === 'mood'   ? scene.mood
+                  : col.id === 'loc'    ? scene.setting?.location
+                  : col.id === 'group'  ? scene.sceneGroup?.label
+                  : col.id === 'conf'   ? scene.ai?.confidence
+                  : col.id === 'desc'   ? scene.description : null;
         row.appendChild(_listCell(val));
       }
     });
@@ -3627,6 +3710,7 @@ App.Grid = (function() {
     const div = document.createElement('div');
     div.className = 'list-cell';
     div.textContent = value || '—';
+    if (value && value.length > 40) div.title = value;
     return div;
   }
 
@@ -4144,6 +4228,14 @@ App.Editor = (function() {
     document.getElementById('ed-transition').value  = scene.shot?.transition || '';
     _renderTextBoxes(scene);
     document.getElementById('ed-mood').value        = scene.mood || '';
+    document.getElementById('ed-shot-angle').value  = scene.shot?.angle || '';
+    document.getElementById('ed-location').value    = scene.setting?.location || '';
+    document.getElementById('ed-time-of-day').value = scene.setting?.timeOfDay || '';
+    document.getElementById('ed-description').value = scene.description || '';
+    document.getElementById('ed-props').value       = (scene.props || []).join(', ');
+    document.getElementById('ed-scene-group').value = scene.sceneGroup?.label || '';
+    document.getElementById('ed-quality-flags').value = (scene.qualityFlags || []).join(', ');
+    _renderAiReview(scene);
     document.getElementById('ed-notes').value       = scene.notes || '';
     document.getElementById('ed-seq-id').value      = scene.video?.sequenceId || '';
     document.getElementById('ed-seq-index').value   = scene.video?.indexInSequence ?? 0;
@@ -4173,6 +4265,38 @@ App.Editor = (function() {
     _populateCharacters(scene);
     _populateTags(scene);
     _buildTagDatalist();
+    _buildValueDatalist('mood-datalist', s => s.mood);
+    _buildValueDatalist('location-datalist', s => s.setting?.location);
+  }
+
+  // Suggests every value already used for a field across the project
+  function _buildValueDatalist(id, get) {
+    const values = new Set();
+    App.Seq.flatScenes(App.State.get('project').sequence).forEach(s => { const v = get(s); if (v) values.add(v); });
+    const dl = document.getElementById(id);
+    dl.innerHTML = '';
+    [...values].sort().forEach(v => { const o = document.createElement('option'); o.value = v; dl.appendChild(o); });
+  }
+
+  // Read-only summary of the AI metadata pass: source, confidence and anything it flagged for review
+  function _renderAiReview(scene) {
+    const box = document.getElementById('ed-ai');
+    const ai = scene.ai;
+    document.getElementById('ed-ai-group').style.display = ai ? '' : 'none';
+    if (!ai) { box.innerHTML = ''; return; }
+    const esc = App.Utils.esc;
+    const t = ai.tagConflicts || {};
+    const notes = [];
+    if (t.taggedButNotVisible?.length) notes.push('Tagged but not visible: ' + t.taggedButNotVisible.join(', '));
+    if (t.visibleButNotTagged?.length) notes.push('Visible but not tagged: ' + t.visibleButNotTagged.join(', '));
+    (ai.sequenceFlags || []).forEach(f => notes.push('Sequence check: ' + f));
+    const prev = ai.previous || {};
+    const changed = [];
+    if (prev.contentRating && prev.contentRating !== scene.contentRating) changed.push(`rating was ${prev.contentRating}`);
+    if (prev.shotType && prev.shotType !== scene.shot?.type) changed.push(`shot was ${prev.shotType}`);
+    box.innerHTML = `${esc(ai.source || '')} · ${esc(ai.date || '')} · confidence <span class="${ai.confidence === 'low' ? 'ai-warn' : ''}">${esc(ai.confidence || '?')}</span>` +
+      (changed.length ? ` · ${esc(changed.join(', '))}` : '') +
+      (notes.length ? `<ul>${notes.map(n => `<li class="ai-warn">${esc(n)}</li>`).join('')}</ul>` : '');
   }
 
   function _populateCharacters(scene) {
@@ -4187,9 +4311,11 @@ App.Editor = (function() {
         <span class="char-name">${App.Utils.esc(char ? (char.alias || char.name) : 'Unknown')}</span>
         <input type="text" placeholder="pose" value="${App.Utils.esc(entry.pose || '')}" data-char-idx="${idx}" data-char-field="pose">
         <input type="text" placeholder="expression" value="${App.Utils.esc(entry.expression || '')}" data-char-idx="${idx}" data-char-field="expression">
+        <input type="text" placeholder="outfit" value="${App.Utils.esc(entry.outfit || '')}" data-char-idx="${idx}" data-char-field="outfit">
         <button data-remove-char="${idx}">×</button>`;
       row.querySelector('[data-char-field="pose"]').addEventListener('input', e => _onCharFieldInput(e, idx, 'pose'));
       row.querySelector('[data-char-field="expression"]').addEventListener('input', e => _onCharFieldInput(e, idx, 'expression'));
+      row.querySelector('[data-char-field="outfit"]').addEventListener('input', e => _onCharFieldInput(e, idx, 'outfit'));
       row.querySelector('[data-remove-char]').addEventListener('click', () => _removeCharacter(idx));
       list.appendChild(row);
     });
@@ -4412,6 +4538,7 @@ App.Editor = (function() {
     if (!field || !_currentId) return;
     let value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     if (e.target.type === 'number') value = Number(value);
+    if (e.target.dataset.listField) value = value.split(',').map(v => v.trim()).filter(Boolean);
     App.State.mutateProject(project => {
       const scene = App.Seq.findSceneById(project.sequence, _currentId);
       if (scene) App.Utils.setNested(scene, field, value);
@@ -4427,7 +4554,7 @@ App.Editor = (function() {
       return;
     }
     const field = e.target.dataset.field;
-    const textFields = ['mood', 'notes', 'video.motionPrompt', 'video.sequenceId'];
+    const textFields = ['mood', 'notes', 'video.motionPrompt', 'video.sequenceId', 'description', 'setting.location', 'sceneGroup.label'];
     if (!field || !textFields.includes(field) || !_currentId) return;
     App.State.mutateProjectCoalesced(project => {
       const scene = App.Seq.findSceneById(project.sequence, _currentId);
@@ -4767,6 +4894,7 @@ App.Filters = (function() {
     // Instant-apply toggles
     document.getElementById('filter-show-excluded')?.addEventListener('change', _onInstant);
     document.getElementById('filter-tagged-only')?.addEventListener('change', _onInstant);
+    document.getElementById('filter-needs-review')?.addEventListener('change', _onInstant);
   }
 
   function _markPending() {
@@ -5384,9 +5512,19 @@ App.Export = (function() {
       md += `| Status | ${scene.status || 'untagged'} |\n`;
       if (scene.contentRating) md += `| Rating | ${scene.contentRating} |\n`;
       if (scene.shot?.type)       md += `| Shot | ${scene.shot.type} |\n`;
+      if (scene.shot?.angle)      md += `| Camera Angle | ${scene.shot.angle} |\n`;
       if (scene.shot?.transition) md += `| Transition | ${scene.shot.transition} |\n`;
       if (scene.mood)             md += `| Mood | ${scene.mood} |\n`;
+      if (scene.setting?.location) md += `| Setting | ${scene.setting.location}${scene.setting.timeOfDay ? ', ' + scene.setting.timeOfDay : ''} |\n`;
+      if (scene.sceneGroup?.label) md += `| Scene Group | ${scene.sceneGroup.label} |\n`;
+      if (scene.description)      md += `| Description | ${scene.description.replace(/\|/g, '/')} |\n`;
       if (charNames)              md += `| Characters | ${charNames} |\n`;
+      const charDetails = (scene.characters || []).filter(e => e.pose || e.expression || e.outfit).map(e => {
+        const ch = chars.find(c => c.id === e.characterId);
+        return `${ch ? (ch.alias || ch.name) : 'Unknown'}: ${[e.pose, e.expression, e.outfit].filter(Boolean).join('; ')}`;
+      });
+      if (charDetails.length)     md += `| Pose / Expression / Outfit | ${charDetails.join('<br>')} |\n`;
+      if (scene.props?.length)    md += `| Props | ${scene.props.join(', ')} |\n`;
       if (pov)                    md += `| POV | ${pov.alias || pov.name} |\n`;
       if (scene.tags?.length)     md += `| Tags | ${scene.tags.join(', ')} |\n`;
       const filledBoxes = (scene.textBoxes || []).filter(b => b.text?.trim());

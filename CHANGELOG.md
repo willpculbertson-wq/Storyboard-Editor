@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-03 — Show and edit the AI metadata fields
+
+- **Scene Editor fields**: camera angle (`shot.angle`), location and time of day (`setting`), description, props, scene group label and quality flags. Props and quality flags are typed comma-separated and stored as lists. Mood and location suggest values already used in the project
+- **Character outfit**: each character row in a scene now has an outfit field beside pose and expression
+- **AI Review box**: read-only summary of `scene.ai`: source model, date, confidence, rating or shot changes from the old values, possible character-tag errors and sequence inconsistencies. Hidden for scenes without AI data
+- **Needs review (AI) filter**: shows scenes with low confidence, a possible tag error or a sequence flag
+- **List view**: new Description and Location columns (on by default) plus Scene Group and AI Confidence (off by default). Saved column layouts pick up new columns automatically. Long cells show the full text on hover
+- **LLM export**: adds camera angle, setting, scene group, description, per-character pose, expression and outfit, and props
+- **New scenes** start with empty values for the new fields
+- The data comes from a metadata pass over the Inheritance Game frames: Gemini Flash processed non-explicit frames and Sonnet the rest, followed by a text-only sequence pass and a targeted re-look
+
 ## 2026-11-02 — Block saves when storyboard.json changed outside the window
 
 - **Stale-write guard**: `saveNow` compares `storyboard.json`'s last-modified time with the one this window last read or wrote. If another program changed the file, saving is blocked and a dialog offers a reload, so an old window can no longer overwrite newer work
