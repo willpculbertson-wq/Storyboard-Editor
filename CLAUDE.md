@@ -29,6 +29,8 @@ A browser-based, single-file visual novel asset pipeline tool. The user selects 
 | `storyboard.json` | Project data (written into user's image folder, not here) |
 | `storyboard-editor-prd.md` | Product requirements — read this before planning any feature work |
 | `CHANGELOG.md` | Session-by-session record of changes |
+| `scripts/install_shortcut.ps1` | Creates the Start Menu/Desktop shortcuts that open `index.html` as an Edge `--app` window |
+| `scripts/make_icon.py` | Generates `scripts/storyboard_editor.ico`; the favicon in `index.html` is an inline copy of its 32 and 64 px renders |
 
 ## Image Handling
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-02 — Launch as a standalone Edge app window with its own icon
+
+- **Standalone window**: `scripts/install_shortcut.ps1` creates Start Menu and Desktop shortcuts that open `index.html` with Edge's `--app` mode (no tabs or address bar). No server; it uses the normal Edge profile and `file://` address, so saved data carries over
+- **Icon**: `scripts/make_icon.py` (Pillow) generates `scripts/storyboard_editor.ico` and `scripts/icon_preview.png`: three image panels joined by a blue story path, with simplified drawings at 16, 24 and 32 px
+- **Window icon**: `index.html` embeds the icon inline at 32 and 64 px as a favicon, so the app window and taskbar button can show it
+- Icon script and installer drafted by Gemini 3.8 Flash in Antigravity, then checked and corrected by Claude (silhouette overflow in panel 2)
+
 ## 2026-11-02 — Scope asset scanning to Images subfolder and exclude reference directories
 
 - **Scope scanning to `Images/`**: if the opened project directory contains an `Images` (or `images`) subdirectory, `enumerateImages` now walks only that folder (prefixed with `Images`) rather than crawling the entire project root. This prevents non-scene folders (references, docs, scripts) from being ingested as scene cards.
